@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>polyjose examples (web)</title>
+  <!-- The import map lets the examples import "@polyjose/wasm" by name, with no bundler: it
+       points at the package's browser entry, which fetches polyjose_wasm_bg.wasm next to it on
+       the first call. -->
+  <script type="importmap">
+    { "imports": { "@polyjose/wasm": "./node_modules/@polyjose/wasm/browser.mjs" } }
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; background: #fff; color: #111; }
+    pre { font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+    @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } }
+  </style>
+</head>
+<body>
+  <h1>polyjose examples (web)</h1>
+  <p>Every check of <code>CATALOG.md</code>, run in this browser through the files in <code>examples/</code>. The same lines are in the console.</p>
+  <pre id="result">Running the checks…</pre>
+  <script type="module">
+    // verify.mjs runs the checks. If it cannot load (no node_modules: run `npm ci`), say why.
+    import("./verify.mjs").catch((err) => {
+      const lines = [`# could not load the checks: ${err?.message ?? String(err)}`, "POLYJOSE-VERIFY: 0/0 PASS"];
+      document.getElementById("result").textContent = `${lines.join("\n")}\n`;
+      for (const line of lines) console.log(line);
+    });
+  </script>
+</body>
+</html>
