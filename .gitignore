@@ -1,0 +1,22 @@
+# Node.js and web
+node_modules/
+.build/
+
+# Swift and Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+Local.xcconfig
+
+# Gradle and Android
+build/
+.gradle/
+local.properties
+.kotlin/
+*.apk
+
+# Editors and macOS
+.DS_Store
+.idea/
+.vscode/
