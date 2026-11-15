@@ -1,0 +1,17 @@
+{
+  "name": "polyjose-examples-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "polyjose example app for the web (WebAssembly): one copyable file per developer task, plus a page that runs every check in CATALOG.md.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "node serve.mjs"
+  },
+  "dependencies": {
+    "@polyjose/wasm": "0.2.0"
+  }
+}

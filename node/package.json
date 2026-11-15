@@ -1,0 +1,18 @@
+{
+  "name": "polyjose-examples-node",
+  "version": "0.0.0",
+  "private": true,
+  "description": "polyjose example app for Node.js: one copyable file per developer task, plus a run of every check in CATALOG.md.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "verify": "node run.mjs",
+    "build:local": "node build.mjs"
+  },
+  "dependencies": {
+    "@polyjose/node": "0.2.0"
+  }
+}

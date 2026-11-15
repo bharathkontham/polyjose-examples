@@ -1,0 +1,15 @@
+{
+  "originHash" : "a06a44fe4a9b9940af5585e0a9984844e0ccfd8cb40da241bbc0876dfc83ba7b",
+  "pins" : [
+    {
+      "identity" : "polyjose",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bharathkontham/polyjose",
+      "state" : {
+        "revision" : "f94b84a45af647a0a385a5997c7a69fa64a34223",
+        "version" : "0.2.0"
+      }
+    }
+  ],
+  "version" : 3
+}
