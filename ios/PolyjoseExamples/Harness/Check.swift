@@ -1,0 +1,69 @@
+// The building blocks of the checks: a check, its expectations and small helpers. A failed
+// expectation says what differs; it never shows key material, plaintext or token contents (see
+// CATALOG.md at the root of this repository, "Output and pass rule").
+import Foundation
+
+/// One check of the catalog: an `area/op/case` id and a body that throws when it fails.
+struct Check: Identifiable, Sendable {
+    let id: String
+    let run: @Sendable () throws -> Void
+}
+
+/// Thrown by a check whose expectation did not hold. `message` is the FAIL reason.
+struct CheckFailure: Error {
+    let message: String
+}
+
+/// Fails the check with `what` unless `condition` holds.
+func expect(_ condition: Bool, _ what: @autoclosure () -> String) throws {
+    if !condition { throw CheckFailure(message: what()) }
+}
+
+/// For public, non-secret values only (algorithm names, kids, indexes): shows both.
+func expectEqual<T: Equatable & CustomStringConvertible>(_ actual: T?, _ expected: T, _ what: String) throws {
+    if actual != expected {
+        throw CheckFailure(message: "\(what): expected \(expected), got \(actual.map(\.description) ?? "nothing")")
+    }
+}
+
+/// For anything that may be secret or token content: says only that it differs.
+func expectSame<T: Equatable>(_ actual: T?, _ expected: T?, _ what: String) throws {
+    try expect(actual == expected, "\(what) differs")
+}
+
+/// The check fails unless `rejection` (an error code, or `nil` for success) is `code`.
+func expectCode(_ rejection: String?, _ code: String) throws {
+    if rejection != code { throw CheckFailure(message: "expected \(code), got \(rejection ?? "success")") }
+}
+
+/// The UTF-8 bytes of `text`.
+func utf8(_ text: String) -> Data { Data(text.utf8) }
+
+/// The current time as a JWT NumericDate: whole seconds since the epoch (RFC 7519 §2).
+func nowSeconds() -> Int64 { Int64(Date().timeIntervalSince1970) }
+
+/// Parses JSON text (a JWK, a header or claims) into a dictionary, to read a member.
+func jsonObject(_ text: String) throws -> [String: Any] {
+    guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+        throw CheckFailure(message: "not a JSON object")
+    }
+    return object
+}
+
+/// A string member of a JSON object, or `nil`.
+func stringMember(_ object: [String: Any], _ name: String) -> String? { object[name] as? String }
+
+/// JWK JSON text with `kid` set to `kid`.
+func withKid(_ jwk: String, _ kid: String) throws -> String {
+    var object = try jsonObject(jwk)
+    object["kid"] = kid
+    return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+}
+
+/// Changes one character in the middle of part `index` of a compact token (`A` and `B` swap).
+func tamper(_ token: String, _ index: Int) -> String {
+    var parts = token.split(separator: ".", omittingEmptySubsequences: false).map { Array($0) }
+    let middle = parts[index].count / 2
+    parts[index][middle] = parts[index][middle] == "A" ? "B" : "A"
+    return parts.map { String($0) }.joined(separator: ".")
+}
