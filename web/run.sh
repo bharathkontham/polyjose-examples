@@ -40,6 +40,7 @@ fi
 [ -n "$chrome" ] && [ -x "$chrome" ] \
   || { echo "run.sh: Chrome not found; set CHROME to the Chrome or Chromium binary" >&2; exit 2; }
 
+expected_checks=34 # the number of checks CATALOG.md lists for the pinned polyjose (0.2.0)
 timeout=${RUN_TIMEOUT:-120}
 case "$timeout" in ''|*[!0-9]*) echo "run.sh: RUN_TIMEOUT must be a number of seconds" >&2; exit 2 ;; esac
 
@@ -108,16 +109,16 @@ lines=$(page_lines)
 [ -z "$lines" ] || printf '%s\n' "$lines"
 
 if [ -z "$final" ]; then
-  checks=$(printf '%s\n' "$lines" | sed -n 's/^# \([0-9][0-9]*\) checks$/\1/p' | head -n 1)
-  echo "POLYJOSE-VERIFY: 0/${checks:-0} PASS (timeout)"
+  echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (timeout)"
   echo "run.sh: no result line from the page within ${timeout}s; Chrome's last log lines:" >&2
   { grep -v ':CONSOLE' "$tmp/chrome.log" || true; } | tail -n 20 | sed 's/^/  /' >&2
   exit 1
 fi
 
-# Exit 0 only for P/R PASS with P = R > 0 (CATALOG.md, "Output and pass rule").
-if [[ "$final" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS ]] \
-  && [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ] && [ "${BASH_REMATCH[2]}" -gt 0 ]; then
-  exit 0
+# Exit 0 only for P/R PASS with P = R = expected_checks (CATALOG.md, "Output and pass rule").
+if [[ "$final" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS ]]; then
+  [ "${BASH_REMATCH[2]}" = "$expected_checks" ] \
+    || echo "run.sh: ${BASH_REMATCH[2]} checks ran; CATALOG.md lists $expected_checks" >&2
+  [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ] && [ "${BASH_REMATCH[2]}" = "$expected_checks" ] && exit 0
 fi
 exit 1

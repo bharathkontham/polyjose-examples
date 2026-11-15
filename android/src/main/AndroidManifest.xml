@@ -4,6 +4,8 @@
         android:allowBackup="false"
         android:label="polyjose examples"
         android:theme="@android:style/Theme.DeviceDefault">
+        <!-- Exported because this is an example app: the launcher and run.sh (`adb shell am start`)
+             start it. It holds no secrets; every key it uses is generated or a published test key. -->
         <activity
             android:name=".app.MainActivity"
             android:exported="true"

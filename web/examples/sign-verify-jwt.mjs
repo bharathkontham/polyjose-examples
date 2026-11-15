@@ -23,14 +23,15 @@ export async function issueToken(claims, signKey, alg) {
  * Validates a JWT with one key (RFC 7519 §7.2). Accepts only `alg`, only the issuer `issuer`
  * and only tokens meant for `audience`. Resolves with `{ claims, header, alg }`.
  *
- * `extra` takes further `JwtVerifyOptions`, such as `now` and `leeway` (seconds).
+ * `extra` takes further `JwtVerifyOptions`, such as `now` and `leeway` (seconds); it cannot
+ * change `allowedAlgs`, `issuers` or `audiences`.
  */
 export async function validateToken(token, verifyKey, { alg, issuer, audience, ...extra }) {
   return jwtVerify(token, verifyKey, {
+    ...extra, // first, so that it can never replace the three lists below
     allowedAlgs: [alg],
     issuers: [issuer],
     audiences: [audience],
-    ...extra,
   });
 }
 

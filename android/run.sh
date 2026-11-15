@@ -27,7 +27,7 @@ cd "$(dirname "$0")"
 app_id=dev.polyjose.examples
 activity=$app_id/.app.MainActivity
 apk=build/outputs/apk/debug/polyjose-examples-android-debug.apk
-checks=34 # the number of checks in CATALOG.md, for the timeout line
+expected_checks=34 # the number of checks CATALOG.md lists for the pinned polyjose (0.2.0)
 avd=${POLYJOSE_AVD:-polyjose-api34}
 port=${POLYJOSE_EMULATOR_PORT:-5580}
 timeout=${POLYJOSE_TIMEOUT:-300}
@@ -41,7 +41,7 @@ emulator=$ANDROID_HOME/emulator/emulator
 
 timed_out() {
   echo "run.sh: $1" >&2
-  echo "POLYJOSE-VERIFY: 0/$checks PASS (timeout)"
+  echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (timeout)"
   exit 1
 }
 
@@ -137,9 +137,10 @@ while [ -z "$result" ]; do
   sleep 1
 done
 
-# 6. Exit 0 only when P = R and R > 0.
-if [[ "$result" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS ]] \
-  && [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ] && [ "${BASH_REMATCH[2]}" -gt 0 ]; then
-  exit 0
+# 6. Exit 0 only for P/R PASS with P = R = expected_checks (CATALOG.md, "Output and pass rule").
+if [[ "$result" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS ]]; then
+  [ "${BASH_REMATCH[2]}" = "$expected_checks" ] \
+    || echo "run.sh: ${BASH_REMATCH[2]} checks ran; CATALOG.md lists $expected_checks" >&2
+  [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ] && [ "${BASH_REMATCH[2]}" = "$expected_checks" ] && exit 0
 fi
 exit 1

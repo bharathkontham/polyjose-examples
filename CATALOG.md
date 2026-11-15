@@ -22,7 +22,7 @@ POLYJOSE-VERIFY: 33/34 PASS (1 skipped)
   - `<what>: expected <a>, got <b>`, only for public values (algorithm names, `kid`, indexes, the RFC 7638 thumbprint);
   - `<what> differs`, for anything else (payloads, claims, key members).
 - **The final line** is `POLYJOSE-VERIFY: P/R PASS`. P is the number of PASS lines and R the number of checks that ran (PASS plus FAIL; skips excluded). ` (S skipped)` is appended only when S > 0.
-- **`run.sh` exits 0 only when P = R and R > 0.** Anything else, including a timeout, exits non-zero. On a timeout `run.sh` prints `POLYJOSE-VERIFY: 0/<R> PASS (timeout)`.
+- **A run exits 0 only when P = R and R is the number of checks this catalog lists for the pinned polyjose version** (34 for 0.2.0). Anything else, including a timeout, exits non-zero. On a timeout it prints `POLYJOSE-VERIFY: 0/<R> PASS (timeout)`. The run is `npm run verify` for Node.js and `run.sh` for the other apps; each holds that number once (`EXPECTED_CHECKS` in `node/run.mjs`, `expected_checks` in each `run.sh`), and a change that adds checks raises it.
 - **A skip is allowed only** when the device lacks the hardware a check needs (Secure Enclave, StrongBox) or the OS level its platform key store needs. A skip never counts as a pass. None of the 0.2.0 checks can skip.
 - **Where the lines go.** Node.js: stdout. Web: the page (`<pre id="result">`) and the browser console. iOS: stdout (`print`). Android: logcat, tag `POLYJOSE`. Each app with a screen also shows them there.
 

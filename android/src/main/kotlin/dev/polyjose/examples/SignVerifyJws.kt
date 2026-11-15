@@ -27,6 +27,7 @@ import dev.polyjose.jwsSignCompact
 import dev.polyjose.jwsSignGeneral
 import dev.polyjose.jwsVerifyCompact
 import dev.polyjose.jwsVerifyJson
+import org.json.JSONObject
 
 /**
  * A key pair for a JWS algorithm: [signKey] signs, [verifyKey] verifies (RFC 7518 §3). Both are
@@ -55,7 +56,7 @@ fun signingKeyPair(alg: String): SigningKeyPair {
  * (RFC 7515 §3.1, §7.1). The protected header carries `alg` (RFC 7515 §4.1.1).
  */
 fun signCompact(payload: ByteArray, signKey: String, alg: String): String =
-    jwsSignCompact(payload, signKey, JwsSignOptions(protectedHeader = """{"alg":"$alg"}"""))
+    jwsSignCompact(payload, signKey, JwsSignOptions(protectedHeader = JSONObject().put("alg", alg).toString()))
 
 /**
  * Verifies a compact JWS (RFC 7515 §5.2), accepting only [alg]. Returns the verified `alg`,
@@ -75,7 +76,7 @@ class Signer(val signKey: String, val alg: String)
 fun signGeneral(payload: ByteArray, signers: List<Signer>): String =
     jwsSignGeneral(
         payload,
-        signers.map { JwsSigner(key = it.signKey, protectedHeader = """{"alg":"${it.alg}"}""") },
+        signers.map { JwsSigner(key = it.signKey, protectedHeader = JSONObject().put("alg", it.alg).toString()) },
         false, // detached: the payload stays in the JWS
     )
 

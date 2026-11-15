@@ -174,8 +174,8 @@ enum Catalog {
             try expect(stringMember(key, "d") != nil, "the private key has no d")
             let pub = try jsonObject(KeysJwks.publicKeyOf(privateJwk))
             try expect(pub["d"] == nil, "the public key still has d")
-            try expectSame(stringMember(pub, "x"), stringMember(key, "x"), "x")
-            try expectSame(stringMember(pub, "y"), stringMember(key, "y"), "y")
+            try expectSameString(stringMember(pub, "x"), stringMember(key, "x"), "x")
+            try expectSameString(stringMember(pub, "y"), stringMember(key, "y"), "y")
         }
 
         check("jwk/thumbprint/rfc7638") {
@@ -187,8 +187,8 @@ enum Catalog {
             let key = try KeysJwks.generateEcKey(crv: "P-256")
             let (pem, jwk) = try KeysJwks.pemRoundTrip(key)
             try expect(pem.hasPrefix("-----BEGIN PRIVATE KEY-----\n"), "not a PKCS#8 PEM")
-            try expectSame(stringMember(jsonObject(jwk), "d"), stringMember(jsonObject(key), "d"), "d")
-            try expectSame(KeysJwks.thumbprint(jwk), KeysJwks.thumbprint(key), "thumbprint")
+            try expectSameString(stringMember(jsonObject(jwk), "d"), stringMember(jsonObject(key), "d"), "d")
+            try expectSameString(KeysJwks.thumbprint(jwk), KeysJwks.thumbprint(key), "thumbprint")
         }
 
         check("jwks/select/by-kid") {
@@ -199,7 +199,7 @@ enum Catalog {
             let selected = try jsonObject(KeysJwks.selectKey(jwks, selector: JwkSelector(kid: "key-2")))
             let second = (try jsonObject(jwks)["keys"] as? [[String: Any]])?.last ?? [:]
             try expectEqual(stringMember(selected, "kid"), "key-2", "kid")
-            try expectSame(stringMember(selected, "x"), stringMember(second, "x"), "x")
+            try expectSameString(stringMember(selected, "x"), stringMember(second, "x"), "x")
             try expectCode(VerifyAllowList.rejectionCode {
                 _ = try KeysJwks.selectKey(jwks, selector: JwkSelector(kid: "key-3"))
             }, "NoMatchingKey")

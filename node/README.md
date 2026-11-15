@@ -7,24 +7,26 @@ Needs Node.js 22.12 or later.
 ## Run it
 
 ```sh
-./run.sh
+npm ci --ignore-scripts
+npm run verify
 ```
 
-`run.sh` runs `npm ci`, then `node verify.mjs`. It prints one line per check and ends with:
+`npm ci --ignore-scripts` installs `@polyjose/node` 0.2.0 from `package-lock.json`, running no install script. `npm run verify` ([`run.mjs`](run.mjs)) runs [`verify.mjs`](verify.mjs), which prints one line per check and ends with:
 
 ```
 POLYJOSE-VERIFY: 34/34 PASS
 ```
 
-It exits 0 only when every check passed. The output format is described in [CATALOG.md](../CATALOG.md#output-and-pass-rule).
+It exits 0 only when all 34 checks of the catalog ran and passed. When they take longer than `RUN_TIMEOUT` seconds (default 120), it stops them, prints `POLYJOSE-VERIFY: 0/34 PASS (timeout)` and exits 1. The output format is described in [CATALOG.md](../CATALOG.md#output-and-pass-rule).
 
 ### Against a local polyjose checkout
 
 ```sh
-POLYJOSE_SRC=../../polyjose ./run.sh
+npm ci --ignore-scripts
+POLYJOSE_SRC=../../polyjose npm run verify
 ```
 
-[`build.sh`](build.sh) copies the checkout to `.build/src`, builds `@polyjose/node` there with polyjose's own `bindings/node/scripts/build.sh`, runs `npm ci` and points `node_modules/@polyjose/node` at the local build. The checkout itself is never written to. It needs Rust (cargo) as well; the first build takes a few minutes. Run `./run.sh` without `POLYJOSE_SRC` (or `npm ci`) to go back to the published package.
+With `POLYJOSE_SRC` set, `npm run verify` first runs `npm run build:local` ([`build.mjs`](build.mjs)), which you can also run on its own. It copies the checkout to `.build/src` (`POLYJOSE_BUILD_DIR` picks another folder outside the checkout), builds `@polyjose/node` there with polyjose's own `bindings/node/scripts/build.sh`, and points `node_modules/@polyjose/node` at the local build. The checkout itself is never written to. It needs Rust (cargo) as well; the first build takes a few minutes. Run `npm ci --ignore-scripts` again to go back to the published package.
 
 ## How do I…?
 

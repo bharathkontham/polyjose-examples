@@ -29,7 +29,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 me=run.sh
 bundle_id=dev.polyjose.examples
 device_name=polyjose-examples
-expected_checks=34 # the 0.2.0 catalog (CATALOG.md); printed in the timeout line
+expected_checks=34 # the number of checks CATALOG.md lists for the pinned polyjose (0.2.0)
 timeout=${POLYJOSE_TIMEOUT:-300}
 build_dir=$here/.build
 logs=$build_dir/logs
@@ -247,4 +247,5 @@ fi
 counts=$(echo "$final" | sed -nE 's/^POLYJOSE-VERIFY: ([0-9]+)\/([0-9]+) PASS( \([0-9]+ skipped\))?$/\1 \2/p')
 passed=${counts% *}
 ran=${counts#* }
-[ -n "$counts" ] && [ "$passed" = "$ran" ] && [ "$ran" -gt 0 ]
+[ -z "$counts" ] || [ "$ran" = "$expected_checks" ] || echo "$me: $ran checks ran; CATALOG.md lists $expected_checks" >&2
+[ -n "$counts" ] && [ "$passed" = "$ran" ] && [ "$ran" = "$expected_checks" ]

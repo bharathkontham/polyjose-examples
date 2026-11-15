@@ -34,6 +34,12 @@ function assertSame(actual, expected, what) {
   assert(actual === expected, `${what} differs`);
 }
 
+/** Like assertSame, for a string that must be there: a missing or empty `expected` fails. */
+function assertSameString(actual, expected, what) {
+  assert(typeof expected === "string" && expected !== "", `${what} is missing`);
+  assertSame(actual, expected, what);
+}
+
 function assertBytes(actual, expected, what) {
   assert(actual instanceof Uint8Array, `${what} is not a Uint8Array`);
   assert(actual.length === expected.length && actual.every((b, i) => b === expected[i]), `${what} differs`);
@@ -212,8 +218,8 @@ check("jwk/generate/ec-p-256", async () => {
   assert(typeof key.d === "string", "the private key has no d");
   const pub = await publicKeyOf(key);
   assert(!Object.hasOwn(pub, "d"), "the public key still has d");
-  assertSame(pub.x, key.x, "x");
-  assertSame(pub.y, key.y, "y");
+  assertSameString(pub.x, key.x, "x");
+  assertSameString(pub.y, key.y, "y");
 });
 
 check("jwk/thumbprint/rfc7638", async () => {
@@ -224,8 +230,8 @@ check("jwk/pem/round-trip", async () => {
   const key = await generateEcKey("P-256");
   const { pem, jwk } = await pemRoundTrip(key);
   assert(pem.startsWith("-----BEGIN PRIVATE KEY-----\n"), "not a PKCS#8 PEM");
-  assertSame(jwk.d, key.d, "d");
-  assertSame(await thumbprint(jwk), await thumbprint(key), "thumbprint");
+  assertSameString(jwk.d, key.d, "d");
+  assertSameString(await thumbprint(jwk), await thumbprint(key), "thumbprint");
 });
 
 check("jwks/select/by-kid", async () => {
@@ -235,17 +241,20 @@ check("jwks/select/by-kid", async () => {
   ]);
   const selected = await selectKey(jwks, { kid: "key-2" });
   assertEq(selected.kid, "key-2", "kid");
-  assertSame(selected.x, jwks.keys[1].x, "x");
+  assertSameString(selected.x, jwks.keys[1].x, "x");
   assertCode(await rejectionCode(() => selectKey(jwks, { kid: "key-3" })), "NoMatchingKey");
 });
 
 // --- run ------------------------------------------------------------------------------------
 
-/** Why a check failed. A polyjose error is shown by its stable code only. */
+/**
+ * Why a check failed. A polyjose error is shown by its stable code only, and any other error by
+ * its name only: its message might quote a key or a token.
+ */
 function describe(err) {
   if (err instanceof CheckFailure) return err.message;
   if (err instanceof PolyjoseError) return `unexpected ${err.code}`;
-  return `unexpected ${err?.name ?? typeof err}: ${err?.message ?? String(err)}`;
+  return `unexpected ${err?.name ?? typeof err}`;
 }
 
 /** The browser and its version, from the user agent string (for the information line). */
@@ -266,7 +275,6 @@ function out(line) {
 }
 
 out(`# polyjose ${await version()} through @polyjose/wasm, ${browserName()}`);
-out(`# ${checks.length} checks`); // run.sh reports this count if the page stops before the end
 let passed = 0;
 for (const { id, run } of checks) {
   try {

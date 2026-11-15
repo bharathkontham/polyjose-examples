@@ -41,7 +41,8 @@ enum EncryptDecrypt {
 
     /// Decrypts a compact JWE (RFC 7516 §5.2), accepting only `allowedAlgs` and `allowedEnc`
     /// (default: the two this file encrypts with). The result has `plaintext` and `header`, the
-    /// JSON text that says which `alg` and `enc` were used.
+    /// JSON text that says which `alg` and `enc` were used. The allow-lists are always your own
+    /// fixed lists, never values read from the token's header (RFC 8725 §3.1).
     static func decrypt(
         _ token: String,
         privateKey: String,

@@ -61,6 +61,12 @@ fun expectEq(actual: Any?, expected: Any?, what: String) {
 /** For anything that may be secret or token content: says only that it differs. */
 fun expectSame(actual: Any?, expected: Any?, what: String) = expect(actual == expected, "$what differs")
 
+/** Like [expectSame], for a string that must be there: a missing or empty [expected] fails. */
+fun expectSameString(actual: Any?, expected: Any?, what: String) {
+    expect(expected is String && expected.isNotEmpty(), "$what is missing")
+    expectSame(actual, expected, what)
+}
+
 fun expectBytes(actual: ByteArray, expected: ByteArray, what: String) = expect(actual.contentEquals(expected), "$what differs")
 
 /** The check fails unless [code] is what [rejection] (an error code, or null for success) says. */
@@ -248,8 +254,8 @@ val CHECKS: List<Check> = buildList {
         expect(member(key, "d") is String, "the private key has no d")
         val pub = publicKeyOf(key)
         expect(!JSONObject(pub).has("d"), "the public key still has d")
-        expectSame(member(pub, "x"), member(key, "x"), "x")
-        expectSame(member(pub, "y"), member(key, "y"), "y")
+        expectSameString(member(pub, "x"), member(key, "x"), "x")
+        expectSameString(member(pub, "y"), member(key, "y"), "y")
     }
 
     check("jwk/thumbprint/rfc7638") {
@@ -260,8 +266,8 @@ val CHECKS: List<Check> = buildList {
         val key = generateEcKey("P-256")
         val result = pemRoundTrip(key)
         expect(result.pem.startsWith("-----BEGIN PRIVATE KEY-----\n"), "not a PKCS#8 PEM")
-        expectSame(member(result.jwk, "d"), member(key, "d"), "d")
-        expectSame(thumbprint(result.jwk), thumbprint(key), "thumbprint")
+        expectSameString(member(result.jwk, "d"), member(key, "d"), "d")
+        expectSameString(thumbprint(result.jwk), thumbprint(key), "thumbprint")
     }
 
     check("jwks/select/by-kid") {
@@ -269,7 +275,7 @@ val CHECKS: List<Check> = buildList {
         val selected = selectKey(jwks, JwkSelector(kid = "key-2"))
         expectEq(member(selected, "kid"), "key-2", "kid")
         val second = JSONObject(jwks).getJSONArray("keys").getJSONObject(1)
-        expectSame(member(selected, "x"), second.opt("x"), "x")
+        expectSameString(member(selected, "x"), second.opt("x"), "x")
         expectCode(rejectionCode { selectKey(jwks, JwkSelector(kid = "key-3")) }, "NoMatchingKey")
     }
 }

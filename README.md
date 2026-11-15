@@ -29,17 +29,17 @@ Every example passes an explicit algorithm allow-list to verify and decrypt (RFC
 
 ## Run an app
 
-Each app has a `run.sh` that builds it, runs every check without a user interface, and prints one line per check, then a final line:
+Each app has one command that builds it, runs every check without a user interface, and prints one line per check, then a final line:
 
 ```
 POLYJOSE-VERIFY: 34/34 PASS
 ```
 
-`run.sh` exits 0 only when every check passed. The format and the rules are in [CATALOG.md](CATALOG.md#output-and-pass-rule).
+It exits 0 only when every check of the catalog ran and passed. The format and the rules are in [CATALOG.md](CATALOG.md#output-and-pass-rule).
 
 | App | Needs | Run |
 |---|---|---|
-| Node.js | Node.js 22.12 or later | `node/run.sh` |
+| Node.js | Node.js 22.12 or later | `cd node && npm ci --ignore-scripts && npm run verify` |
 | Web | Node.js 22.12 or later, and Google Chrome (`CHROME` names its binary) | `web/run.sh` |
 | iOS | macOS with Xcode and an iOS Simulator (`DEVELOPER_DIR` selects the Xcode) | `ios/run.sh` |
 | Android | A JDK (`JAVA_HOME`) and the Android SDK with an emulator (`ANDROID_HOME`) | `android/run.sh` |
@@ -51,7 +51,8 @@ Each app's README says how to run it by hand as well (in a browser, from Xcode o
 By default each app uses the published polyjose release, pinned in one place per platform (`node/package.json`, `web/package.json`, the iOS project's Swift package requirement, `android/build.gradle.kts`). To try the apps against unreleased polyjose code instead, point `POLYJOSE_SRC` at a polyjose checkout:
 
 ```sh
-POLYJOSE_SRC=../../polyjose node/run.sh
+POLYJOSE_SRC=../../polyjose web/run.sh
+cd node && npm ci --ignore-scripts && POLYJOSE_SRC=../../polyjose npm run verify
 ```
 
 The app then builds polyjose from that checkout with polyjose's own build scripts, which need the toolchains in polyjose's `CONTRIBUTING.md`. The checkout is never written to. A relative `POLYJOSE_SRC` is resolved from the app's folder.

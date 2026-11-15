@@ -31,6 +31,12 @@ func expectSame<T: Equatable>(_ actual: T?, _ expected: T?, _ what: String) thro
     try expect(actual == expected, "\(what) differs")
 }
 
+/// Like `expectSame`, for a string that must be there: a missing or empty `expected` fails.
+func expectSameString(_ actual: String?, _ expected: String?, _ what: String) throws {
+    try expect(!(expected ?? "").isEmpty, "\(what) is missing")
+    try expectSame(actual, expected, what)
+}
+
 /// The check fails unless `rejection` (an error code, or `nil` for success) is `code`.
 func expectCode(_ rejection: String?, _ code: String) throws {
     if rejection != code { throw CheckFailure(message: "expected \(code), got \(rejection ?? "success")") }

@@ -35,7 +35,8 @@ export async function encryptTo(plaintext, recipientPublicKey) {
 /**
  * Decrypts a compact JWE (RFC 7516 §5.2), accepting only `allowedAlgs` and `allowedEnc`
  * (default: the two this file encrypts with). Resolves with `{ plaintext, header, ... }`; the
- * header says which `alg` and `enc` were used.
+ * header says which `alg` and `enc` were used. The allow-lists are always your own fixed lists,
+ * never values read from the token's header (RFC 8725 §3.1).
  */
 export async function decrypt(token, privateKey, allowedAlgs = [ALG], allowedEnc = [ENC]) {
   return jweDecryptCompact(token, privateKey, { allowedAlgs, allowedEnc });

@@ -50,7 +50,9 @@ fun encryptTo(plaintext: ByteArray, recipientPublicKey: String): String =
 /**
  * Decrypts a compact JWE (RFC 7516 §5.2), accepting only [allowedAlgs] and [allowedEnc]
  * (default: the two this file encrypts with). The result holds `plaintext` and `header` (JSON
- * text), which says which `alg` and `enc` were used. Wipe the plaintext when you are done.
+ * text), which says which `alg` and `enc` were used. Wipe the plaintext when you are done. The
+ * allow-lists are always your own fixed lists, never values read from the token's header
+ * (RFC 8725 §3.1).
  */
 fun decrypt(
     token: String,
