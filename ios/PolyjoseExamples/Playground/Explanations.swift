@@ -96,7 +96,7 @@ enum Explanations {
         "failure.sign.deleted-key": "The key was deleted, so opening it again by its name finds nothing.",
         "failure.encrypt.tamper": "One character of the ciphertext changed. Every decryption failure gives the same code, so it reveals nothing (RFC 7516 §11.5).",
         "failure.encrypt.other-alg": "The recipient allows only another `alg` (RFC 8725 §3.1).",
-        "failure.encrypt.wrong-key": "Another key of the same kind decrypts, and decryption fails (RFC 7516 §11.5).",
+        "failure.encrypt.wrong-key": "The token is decrypted with a key other than the one it was encrypted to, of the same kind, and decryption fails (RFC 7516 §11.5).",
         "failure.encrypt.deleted-key": "The key was deleted, so opening it again by its name finds nothing.",
 
         // Error codes: the meaning, then what an app does about it
@@ -119,6 +119,6 @@ enum Explanations {
         "error.MultipleMatchingKeys": "More than one key in the JWK Set matches (RFC 7517 §5). Give the keys distinct `kid`s.",
         "error.KeyNotFound": "No usable key under that name: none was created, it was deleted, or the platform invalidated it. Create a new key.",
         "error.UserAuthenticationRequired": "The key needs the user to authenticate, and they haven't, cancelled, or can't (lockout, no biometrics). Prompt, then retry.",
-        "error.PlatformKeyFailed": "Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help.",
+        "error.PlatformKeyFailed": "Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help. When decrypting, such a failure gives `DecryptionFailed` instead, so every decryption failure looks the same (RFC 7516 §11.5).",
     ]
 }
