@@ -107,6 +107,6 @@ struct EncryptView: View {
 
     private func run(_ action: EncryptAction, _ spec: KeySpec, anyway: Bool = false) {
         let enc = enc
-        Task { card = await playground.encrypt(spec, enc: enc, action, anyway: anyway) }
+        Task { if let made = await playground.encrypt(spec, enc: enc, action, anyway: anyway) { card = made } }
     }
 }

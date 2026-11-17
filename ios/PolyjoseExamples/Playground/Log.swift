@@ -22,7 +22,8 @@ import Polyjose
 let secretMembers: Set<String> = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"]
 
 /// JSON text that is safe to show: every object holding a private or symmetric member is replaced
-/// by `"[withheld]"` (PLAYGROUND.md, "Secrets"). Text that isn't JSON is withheld as a whole.
+/// by `"[withheld]"` (PLAYGROUND.md, "Secrets"). Text that isn't a JSON object or array is withheld
+/// as a whole.
 struct PublicJson: Sendable, CustomStringConvertible {
     let text: String
     var description: String { text }
@@ -32,10 +33,11 @@ struct PublicJson: Sendable, CustomStringConvertible {
 
 /// The one public-only gate: every JWK, header or claims set passes it before it is shown or logged.
 func publicOnly(_ json: String) -> PublicJson {
-    guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed]) else {
+    guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)), object is [String: Any] || object is [Any] else {
         return PublicJson(gated: "[withheld]")
     }
     let gated = withholdSecrets(object)
+    // A top-level object with a secret member is now the string "[withheld]".
     if let text = gated as? String { return PublicJson(gated: text) }
     guard let data = try? JSONSerialization.data(withJSONObject: gated, options: [.withoutEscapingSlashes, .sortedKeys]) else {
         return PublicJson(gated: "[withheld]")
@@ -124,10 +126,13 @@ enum LogEvent: Sendable {
     case error(ErrorCode, ms: Int)
     case note(String)
 
-    /// The event name and the rest of the line.
+    /// The event name and the rest of the line. A field value keeps only identifier characters
+    /// (any other becomes `_`, an empty value `-`), and a token that isn't base64url parts joined
+    /// by dots (RFC 7515 §7.1, RFC 7516 §7.1) is logged as `[not a compact token]`, so a value
+    /// can't carry free text into the log.
     var parts: (event: String, rest: String) {
         func fields(_ pairs: [(String, String?)]) -> String {
-            pairs.compactMap { key, value in value.map { "\(key)=\($0.replacingOccurrences(of: " ", with: "_"))" } }
+            pairs.compactMap { key, value in value.map { "\(key)=\(identifier($0))" } }
                 .joined(separator: " ")
         }
         switch self {
@@ -156,10 +161,10 @@ enum LogEvent: Sendable {
             ]))
         case let .jwk(json): return ("jwk", json.text)
         case let .thumbprint(value): return ("thumbprint", fields([("value", value)]))
-        case let .call(function, ms): return ("call", "\(function) " + fields([("ms", "\(ms)")]))
+        case let .call(function, ms): return ("call", "\(identifier(function)) " + fields([("ms", "\(ms)")]))
         case let .tamper(part, index): return ("tamper", fields([("part", part), ("index", "\(index)")]))
         case let .header(json): return ("header", json.text)
-        case let .token(token): return ("token", token)
+        case let .token(token): return ("token", isCompactToken(token) ? token : "[not a compact token]")
         case let .verify(alg, kid, ms): return ("verify", "ok " + fields([("alg", alg), ("kid", kid), ("ms", "\(ms)")]))
         case let .claims(json): return ("claims", json.text)
         case let .decrypt(alg, enc, equal, ms):
@@ -171,6 +176,23 @@ enum LogEvent: Sendable {
         }
     }
 }
+
+/// `value` with every character other than `A-Z a-z 0-9 . _ : + / = @ , -` replaced by `_`, or `-`
+/// when it is empty.
+private func identifier(_ value: String) -> String {
+    let kept = String(value.unicodeScalars.map { identifierCharacters.contains($0) ? Character($0) : "_" })
+    return kept.isEmpty ? "-" : kept
+}
+
+private let identifierCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:+/=@,-")
+
+/// Two or more base64url parts joined by `.` (a compact JWS or JWE).
+private func isCompactToken(_ token: String) -> Bool {
+    let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+    return parts.count >= 2 && parts.allSatisfy { $0.unicodeScalars.allSatisfy(base64urlCharacters.contains) }
+}
+
+private let base64urlCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 
 // MARK: - The result card
 
@@ -209,7 +231,9 @@ struct Card: Sendable {
             livesIn = reported == .secureEnclave ? .secureEnclave : .keychain
             time("key-open", ms)
         case let .keyDelete(_, ms): time("key-delete", ms)
-        case .keySoftware: livesIn = .software
+        // The first key of a tap is the one the card is about: the "other" key of a wrong-key
+        // action is a software key also when the tap's key is a platform key.
+        case .keySoftware: if livesIn == nil { livesIn = .software }
         case let .jwk(json): publicJwk = json.text
         case let .call(function, ms): time(function, ms)
         case let .header(json): header = json.text
@@ -279,6 +303,23 @@ final class PlaygroundLog: ObservableObject {
     }
 
     func clear() { entries = [] }
+
+    /// Every line, oldest first, with each long line's `+` continuations joined back onto it
+    /// (PLAYGROUND.md, "Log"), and the number of joined lines: what the demo walk's secrets check
+    /// searches.
+    var joinedText: (text: String, lines: Int) {
+        var joined: [String] = []
+        for entry in entries.reversed() {
+            for line in entry.lines {
+                if !joined.isEmpty, let range = line.range(of: #"^LOG [0-9]+\.[0-9]+ \+ "#, options: .regularExpression) {
+                    joined[joined.count - 1] += line[range.upperBound...]
+                } else {
+                    joined.append(line)
+                }
+            }
+        }
+        return (joined.joined(separator: "\n"), joined.count)
+    }
 
     /// Every entry, oldest first, as text for Copy all and Share.
     var exportText: String {

@@ -1,10 +1,12 @@
 // The demo walk (PLAYGROUND.md at the root of this repository, "Demo walk"): launched with the
 // argument `-playground-demo` (`run.sh --playground` does this), the app runs every cell of the
 // support matrix on this device through the same `Playground` functions the buttons call, then
-// every failure action, then the key actions, and deletes the keys it made.
+// every failure action, then the key actions, and deletes the keys it made. Its last step is the
+// secrets check (PLAYGROUND.md, "Secrets"): no secret member value of a software key it made is
+// anywhere in its log.
 //
 //   WALK OK sign/jws/secure-enclave/ES384 expected=UnsupportedAlgorithm got=UnsupportedAlgorithm
-//   POLYJOSE-PLAYGROUND: 180/180 OK
+//   POLYJOSE-PLAYGROUND: 181/181 OK
 //
 // A ✓ cell must succeed and a ✗ cell runs "Run anyway" and must give the code of its row. Options
 // that need user authentication are not used, because no one is there to authenticate; creating
@@ -29,6 +31,9 @@ enum DemoWalk {
             emit("# playground demo walk: polyjose \(info.polyjose), \(info.os) (\(info.simulator ? "Simulator" : "device")), Secure Enclave \(info.secureEnclave), passcode \(info.passcodeSet)")
         }
         let firstTag = playground.createdTagCount
+        let secrets = SecretValues()
+        playground.softwareKeyMade = { secrets.add($0) }
+        defer { playground.softwareKeyMade = nil }
         var steps: [Step] = []
 
         // Signing: every algorithm on every store, as a JWS; RSA sizes; a JWT per store.
@@ -76,7 +81,7 @@ enum DemoWalk {
         for (store, alg, failure) in signFailures where Matrix.failure(failure, store: store, alg: alg).isEnabled {
             let spec = KeySpec(store: store, alg: alg)
             steps.append(Step(id: "failure/\(failure.rawValue)/\(store.rawValue)/\(alg)", expected: failure.code) {
-                outcome(await playground.sign(spec, jwt: false, .failure(failure)))
+                outcome(await playground.sign(spec, jwt: false, .failure(failure)), livesIn: spec.store)
             })
         }
         var encryptFailures: [(Store, String, Failure)] = []
@@ -90,7 +95,7 @@ enum DemoWalk {
         for (store, alg, failure) in encryptFailures where Matrix.failure(failure, store: store, alg: alg).isEnabled {
             let spec = KeySpec(store: store, alg: alg)
             steps.append(Step(id: "failure/\(failure.rawValue)/\(store.rawValue)/\(alg)", expected: failure.code) {
-                outcome(await playground.encrypt(spec, enc: Matrix.defaultEnc, .failure(failure)))
+                outcome(await playground.encrypt(spec, enc: Matrix.defaultEnc, .failure(failure)), livesIn: spec.store)
             })
         }
 
@@ -104,7 +109,7 @@ enum DemoWalk {
                 let id = "keys/list-without-prompt/\(store.rawValue)/\(option.rawValue)"
                 steps.append(Step(id: id, expected: support.isEnabled ? "listed" : expected(support)) {
                     let card = await playground.createKey(spec, anyway: !support.isEnabled)
-                    guard card.succeeded else { return outcome(card) }
+                    guard let card, card.succeeded else { return outcome(card) }
                     let tag = playground.lastCreatedTag
                     await playground.refreshKeys()
                     return playground.platformKeys.contains { $0.tag == tag && $0.store == store } ? "listed" : "not-listed"
@@ -113,10 +118,10 @@ enum DemoWalk {
         }
         steps.append(Step(id: "keys/open-again/keychain/ES256", expected: "ok") {
             let card = await playground.createKey(KeySpec(store: .keychain, alg: "ES256"))
-            guard card.succeeded, let listed = playground.platformKeys.first(where: { $0.tag == playground.lastCreatedTag }) else {
+            guard let card, card.succeeded, let listed = playground.platformKeys.first(where: { $0.tag == playground.lastCreatedTag }) else {
                 return outcome(card)
             }
-            let opened = await playground.openAgain(listed)
+            guard let opened = await playground.openAgain(listed) else { return "busy" }
             return opened.card.succeeded && opened.thumbprint != nil ? "ok" : outcome(opened.card)
         })
         steps.append(Step(id: "secrets/public-only-gate", expected: "withheld") {
@@ -136,8 +141,16 @@ enum DemoWalk {
         await playground.refreshKeys()
         let left = playground.platformKeys.filter { tags.contains($0.tag) }.count
         if left == 0 { ok += 1 }
-        let total = steps.count + 1
         emit("WALK \(left == 0 ? "OK" : "FAIL") keys/walk-keys-deleted expected=0 got=\(left)")
+
+        // The secrets check, after the clean-up so it covers every tap: how many secret member
+        // values of the software keys the walk made appear in its log. Only counts are printed.
+        let found = await secrets.found(in: playground.log.joinedText)
+        emit("# secrets check: \(found.matches) of \(found.values) secret values of \(secrets.keys) software keys found in \(found.lines) log lines")
+        let secretsOutcome = secrets.values.isEmpty || secrets.unreadable > 0 ? "no-values" : "\(found.matches)"
+        if secretsOutcome == "0" { ok += 1 }
+        emit("WALK \(secretsOutcome == "0" ? "OK" : "FAIL") secrets/no-secret-value-in-log expected=0 got=\(secretsOutcome)")
+        let total = steps.count + 2
         emit("POLYJOSE-PLAYGROUND: \(ok)/\(total) OK")
         return ok == total
     }
@@ -161,14 +174,58 @@ enum DemoWalk {
         return "ok"
     }
 
-    /// `ok` for a tap that ended without an error, else its code.
-    private static func outcome(_ card: Card) -> String {
+    /// `ok` for a tap that ended without an error, else its code; `busy` when the tap didn't start.
+    private static func outcome(_ card: Card?) -> String {
+        guard let card else { return "busy" }
         if card.plaintextDiffers { return "plaintext-differs" }
         return card.errorCode ?? "ok"
+    }
+
+    /// As `outcome`, and the card's "Key lives in" must be the store of the tap's key, also when
+    /// a failure action made a software key as its "other" key.
+    private static func outcome(_ card: Card?, livesIn store: Store) -> String {
+        if let card, card.livesIn != store { return "lives-in-\(card.livesIn?.rawValue ?? "none")" }
+        return outcome(card)
     }
 
     private static func emit(_ line: String) {
         print(line)
         fflush(stdout)
+    }
+}
+
+/// The secret member values (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`) of every software key
+/// the walk makes, for its secrets check. They are only compared with the log text: never logged,
+/// printed or shown. The walk reports counts only.
+@MainActor
+private final class SecretValues {
+    private(set) var keys = 0
+    private(set) var unreadable = 0
+    private(set) var values: Set<String> = []
+
+    func add(_ secretJwk: String) {
+        keys += 1
+        guard let object = try? playgroundObject(secretJwk) else { unreadable += 1; return }
+        for (member, value) in object where secretMembers.contains(member) { collect(value) }
+    }
+
+    /// A string value, or every string inside an `oth` array (RFC 7518 §6.3.2.7).
+    private func collect(_ value: Any) {
+        if let text = value as? String {
+            if !text.isEmpty { values.insert(text) }
+        } else if let array = value as? [Any] {
+            array.forEach(collect)
+        } else if let object = value as? [String: Any] {
+            object.values.forEach(collect)
+        }
+    }
+
+    /// How many of the values appear in `text`, searched off the main thread.
+    func found(in log: (text: String, lines: Int)) async -> (matches: Int, values: Int, lines: Int) {
+        let values = values, text = log.text
+        let matches = await Task.detached(priority: .userInitiated) {
+            values.filter { text.range(of: $0, options: .literal) != nil }.count
+        }.value
+        return (matches, values.count, log.lines)
     }
 }

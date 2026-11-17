@@ -94,7 +94,7 @@ struct SignView: View {
 
     private func run(_ action: SignAction, _ spec: KeySpec, anyway: Bool = false) {
         let jwt = jwt
-        Task { card = await playground.sign(spec, jwt: jwt, action, anyway: anyway) }
+        Task { if let made = await playground.sign(spec, jwt: jwt, action, anyway: anyway) { card = made } }
     }
 }
 
