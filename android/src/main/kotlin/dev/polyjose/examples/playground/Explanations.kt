@@ -69,7 +69,7 @@ object Explanations {
         "option.curve" to "The curve of an ECDH-ES key: P-256, P-384, P-521 or X25519.",
         "option.strongbox.off" to "The TEE. StrongBox is never asked for.",
         "option.strongbox.preferred" to "StrongBox when the device has it and it can serve the algorithm, else the TEE: falls back to the TEE; the key reports where it went.",
-        "option.strongbox.required" to "StrongBox or nothing. Without StrongBox, creating the key fails with `PlatformKeyFailed` and no key is left behind; there is never a silent move to the TEE.",
+        "option.strongbox.required" to "StrongBox or nothing. Without StrongBox, creating the key fails with `PlatformKeyFailed` (API 28 or later; below 28, StrongBox is refused with `UnsupportedAlgorithm`) and no key is left behind; there is never a silent move to the TEE.",
         "option.auth.none" to "No user authentication: the key works whenever the app calls it.",
         "option.auth.time-bound" to "After the user authenticates in the app's prompt, the key works for the chosen number of seconds; outside that window a call fails with `UserAuthenticationRequired`. Every key kind.",
         "option.auth.per-use" to "Each signature or decryption shows a prompt bound to that one operation. Signing and RSA-OAEP-256 keys, API 28 or later.",
@@ -93,7 +93,7 @@ object Explanations {
         "failure.sign.deleted-key" to "The key was deleted, so opening it again by its name finds nothing.",
         "failure.encrypt.tamper" to "One character of the ciphertext changed. Every decryption failure gives the same code, so it reveals nothing (RFC 7516 §11.5).",
         "failure.encrypt.other-alg" to "The recipient allows only another `alg` (RFC 8725 §3.1).",
-        "failure.encrypt.wrong-key" to "Another key of the same kind decrypts, and decryption fails (RFC 7516 §11.5).",
+        "failure.encrypt.wrong-key" to "The token is decrypted with a key other than the one it was encrypted to, of the same kind, and decryption fails (RFC 7516 §11.5).",
         "failure.encrypt.deleted-key" to "The key was deleted, so opening it again by its name finds nothing.",
 
         // Error codes
@@ -116,7 +116,7 @@ object Explanations {
         "error.MultipleMatchingKeys" to "More than one key in the JWK Set matches (RFC 7517 §5). Give the keys distinct `kid`s.",
         "error.KeyNotFound" to "No usable key under that name: none was created, it was deleted, or the platform invalidated it. Create a new key.",
         "error.UserAuthenticationRequired" to "The key needs the user to authenticate, and they haven't, cancelled, or can't (lockout, no biometrics). Prompt, then retry.",
-        "error.PlatformKeyFailed" to "Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help.",
+        "error.PlatformKeyFailed" to "Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help. When decrypting, such a failure gives `DecryptionFailed` instead, so every decryption failure looks the same (RFC 7516 §11.5).",
     )
 
     /** The text of [id]; an id with no text (a non-polyjose error type) says so. */

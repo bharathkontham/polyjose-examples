@@ -58,6 +58,7 @@ Encryption is always done in software, to the key's public JWK. The store column
 
 - **No Secure Enclave** ([`SecureEnclave.isAvailable`](https://developer.apple.com/documentation/cryptokit/secureenclave/isavailable) false): the Secure Enclave column is ✗ with `reason.no-secure-enclave`; Run anyway gives `UnsupportedAlgorithm` from `AppleKey.generate`. There is no fallback to the Keychain.
 - **User authentication:** the four access flags (`option.access.*`, [`SecAccessControlCreateFlags`](https://developer.apple.com/documentation/security/secaccesscontrolcreateflags)), on Keychain and Secure Enclave keys. A cancelled, failed or impossible authentication gives `UserAuthenticationRequired`.
+  - **With no passcode set** ([`canEvaluatePolicy(.deviceOwnerAuthentication)`](https://developer.apple.com/documentation/localauthentication/lacontext/canevaluatepolicy(_:error:)) false): the playground disables every access flag, on Keychain and Secure Enclave keys, with `reason.no-lock-screen`. Run anyway is expected to give `UserAuthenticationRequired`; this is not yet confirmed on a device without a passcode.
   - **On the iOS Simulator** a Secure Enclave key with any of the four flags can't be created: `AppleKey.generate` gives `UserAuthenticationRequired` at once, with no prompt. Keychain keys with the same flags are created. So on the Simulator only, the playground disables the four flags for the Secure Enclave with `reason.simulator-secure-enclave-auth`, and Run anyway gives `UserAuthenticationRequired`.
   - **One shared `LAContext`** (`option.access.shared-context`): with a flag chosen, a toggle passes the playground's one [`LAContext`](https://developer.apple.com/documentation/localauthentication/lacontext), made on first use, to the key's calls (`AppleKey.Access.context`, [`kSecUseAuthenticationContext`](https://developer.apple.com/documentation/security/ksecuseauthenticationcontext)), so after one authentication the later calls with it don't ask again.
   - **The Keys tab** shows a key's access flag only for keys made since the app started. For any other key it shows "not reported by iOS": the attributes that listing reads don't say which flag a key has.
@@ -235,7 +236,7 @@ Every tab, algorithm, `enc`, curve, store, option, refusal reason, failure actio
 | `failure.sign.deleted-key` | The key was deleted, so opening it again by its name finds nothing. |
 | `failure.encrypt.tamper` | One character of the ciphertext changed. Every decryption failure gives the same code, so it reveals nothing (RFC 7516 §11.5). |
 | `failure.encrypt.other-alg` | The recipient allows only another `alg` (RFC 8725 §3.1). |
-| `failure.encrypt.wrong-key` | Another key of the same kind decrypts, and decryption fails (RFC 7516 §11.5). |
+| `failure.encrypt.wrong-key` | The token is decrypted with a key other than the one it was encrypted to, of the same kind, and decryption fails (RFC 7516 §11.5). |
 | `failure.encrypt.deleted-key` | The key was deleted, so opening it again by its name finds nothing. |
 
 ### Error codes
