@@ -3,7 +3,7 @@
 //
 // Every other key in these examples is generated at run time from the OS random number generator.
 // These two are fixed for a reason:
-// - polyjose 0.2.0 cannot generate RSA keys. Your app loads its RSA key from its key store, for
+// - polyjose 0.4.0 cannot generate RSA keys. Your app loads its RSA key from its key store, for
 //   example with `jwkFromPem(pem:)` (see KeysJwks.swift).
 // - A thumbprint check needs a key whose thumbprint the RFC publishes.
 

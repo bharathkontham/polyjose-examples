@@ -40,7 +40,7 @@ fi
 [ -n "$chrome" ] && [ -x "$chrome" ] \
   || { echo "run.sh: Chrome not found; set CHROME to the Chrome or Chromium binary" >&2; exit 2; }
 
-expected_checks=34 # the number of checks CATALOG.md lists for the pinned polyjose (0.2.0)
+expected_checks=34 # the number of web checks CATALOG.md lists for the pinned polyjose (0.4.0)
 timeout=${RUN_TIMEOUT:-120}
 case "$timeout" in ''|*[!0-9]*) echo "run.sh: RUN_TIMEOUT must be a number of seconds" >&2; exit 2 ;; esac
 

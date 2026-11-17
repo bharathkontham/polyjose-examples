@@ -13,6 +13,6 @@
     "build:local": "node build.mjs"
   },
   "dependencies": {
-    "@polyjose/node": "0.2.0"
+    "@polyjose/node": "0.4.0"
   }
 }

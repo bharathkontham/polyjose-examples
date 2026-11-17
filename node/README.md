@@ -1,6 +1,6 @@
 # polyjose example app for Node.js
 
-`polyjose-examples-node` uses [`@polyjose/node`](https://www.npmjs.com/package/@polyjose/node) 0.2.0, the only dependency. Each file in [`examples/`](examples/) answers one "How do I…?" question, imports `@polyjose/node` directly, and can be copied into your project on its own. [`verify.mjs`](verify.mjs) runs every check of the [catalog](../CATALOG.md) through those files.
+`polyjose-examples-node` uses [`@polyjose/node`](https://www.npmjs.com/package/@polyjose/node) 0.4.0, the only dependency. Each file in [`examples/`](examples/) answers one "How do I…?" question, imports `@polyjose/node` directly, and can be copied into your project on its own. [`verify.mjs`](verify.mjs) runs every check of the [catalog](../CATALOG.md) through those files.
 
 Needs Node.js 22.12 or later.
 
@@ -11,7 +11,7 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-`npm ci --ignore-scripts` installs `@polyjose/node` 0.2.0 from `package-lock.json`, running no install script. `npm run verify` ([`run.mjs`](run.mjs)) runs [`verify.mjs`](verify.mjs), which prints one line per check and ends with:
+`npm ci --ignore-scripts` installs `@polyjose/node` 0.4.0 from `package-lock.json`, running no install script. `npm run verify` ([`run.mjs`](run.mjs)) runs [`verify.mjs`](verify.mjs), which prints one line per check and ends with:
 
 ```
 POLYJOSE-VERIFY: 34/34 PASS
@@ -59,7 +59,7 @@ Checks: `jwk/generate/ec-p-256`, `jwk/thumbprint/rfc7638`, `jwk/pem/round-trip`,
 
 ### Decode a token before verifying it
 
-Not in polyjose 0.2.0. This example arrives with the polyjose release that adds unverified decoding.
+Not in this app yet. polyjose 0.4.0 has the unverified decode functions; this example arrives in a later update of this repository.
 
 ### Use a platform key store
 
@@ -67,4 +67,4 @@ Not on Node.js: platform key stores are an iOS and Android feature (see [ios](..
 
 ## Test keys
 
-[`examples/test-keys.mjs`](examples/test-keys.mjs) holds two keys copied from the RFCs: the RFC 7515 Appendix A.2 RSA key (polyjose 0.2.0 cannot generate RSA keys) and the RFC 7638 §3.1 key. They are published: **test keys, never use them in production.** Every other key is generated at run time.
+[`examples/test-keys.mjs`](examples/test-keys.mjs) holds two keys copied from the RFCs: the RFC 7515 Appendix A.2 RSA key (polyjose 0.4.0 cannot generate RSA keys) and the RFC 7638 §3.1 key. They are published: **test keys, never use them in production.** Every other key is generated at run time.
