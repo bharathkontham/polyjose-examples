@@ -1,6 +1,6 @@
 # polyjose example app for the web
 
-`polyjose-examples-web` uses [`@polyjose/wasm`](https://www.npmjs.com/package/@polyjose/wasm) 0.2.0, the only dependency, in the browser, with no bundler. Each file in [`examples/`](examples/) answers one "How do I…?" question, imports `@polyjose/wasm` directly, and can be copied into your project on its own. [`index.html`](index.html) runs every check of the [catalog](../CATALOG.md) through those files, with [`verify.mjs`](verify.mjs).
+`polyjose-examples-web` uses [`@polyjose/wasm`](https://www.npmjs.com/package/@polyjose/wasm) 0.4.0, the only dependency, in the browser, with no bundler. Each file in [`examples/`](examples/) answers one "How do I…?" question, imports `@polyjose/wasm` directly, and can be copied into your project on its own. [`index.html`](index.html) runs every check of the [catalog](../CATALOG.md) through those files, with [`verify.mjs`](verify.mjs).
 
 Needs Node.js 22.12 or later (for `npm` and the local server) and a current browser. `run.sh` needs Google Chrome or Chromium.
 
@@ -72,7 +72,7 @@ Checks: `jwk/generate/ec-p-256`, `jwk/thumbprint/rfc7638`, `jwk/pem/round-trip`,
 
 ### Decode a token before verifying it
 
-Not in polyjose 0.2.0. This example arrives with the polyjose release that adds unverified decoding.
+Not in this app yet. polyjose 0.4.0 has the unverified decode functions; this example arrives in a later update of this repository.
 
 ### Use a platform key store
 
@@ -80,4 +80,4 @@ Not on the web: platform key stores are an iOS and Android feature (see [ios](..
 
 ## Test keys
 
-[`examples/test-keys.mjs`](examples/test-keys.mjs) holds two keys copied from the RFCs: the RFC 7515 Appendix A.2 RSA key (polyjose 0.2.0 cannot generate RSA keys) and the RFC 7638 §3.1 key. They are published: **test keys, never use them in production.** Every other key is generated at run time, from the browser's random number generator (`crypto.getRandomValues`).
+[`examples/test-keys.mjs`](examples/test-keys.mjs) holds two keys copied from the RFCs: the RFC 7515 Appendix A.2 RSA key (polyjose 0.4.0 cannot generate RSA keys) and the RFC 7638 §3.1 key. They are published: **test keys, never use them in production.** Every other key is generated at run time, from the browser's random number generator (`crypto.getRandomValues`).

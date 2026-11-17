@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Builds the app, runs it on an iOS Simulator and prints every check of ../CATALOG.md, one line
-# per check, then `POLYJOSE-VERIFY: P/R PASS`. Exits 0 only when every check passed.
+# per check, then `POLYJOSE-VERIFY: P/R PASS`. Exits 0 only when every check that ran passed and
+# every check of the catalog either ran or was skipped (CATALOG.md, "Output and pass rule").
 #
 #   ./run.sh                               against the published polyjose Swift package (the
-#                                          project's package requirement, exact 0.2.0)
+#                                          project's package requirement, exact 0.4.0)
 #   POLYJOSE_SRC=../../polyjose ./run.sh   against a local polyjose checkout (see README.md)
 #
 # The Simulator: a device named `polyjose-examples` on the newest installed iOS runtime, created
@@ -29,7 +30,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 me=run.sh
 bundle_id=dev.polyjose.examples
 device_name=polyjose-examples
-expected_checks=34 # the number of checks CATALOG.md lists for the pinned polyjose (0.2.0)
+expected_checks=34 # N: the number of iOS checks CATALOG.md lists for the pinned polyjose (0.4.0)
 timeout=${POLYJOSE_TIMEOUT:-300}
 build_dir=$here/.build
 logs=$build_dir/logs
@@ -237,15 +238,30 @@ done
 # The app exits by itself after the final line; give it a moment, then stop it.
 for _ in 1 2 3 4 5; do kill -0 "$launch_pid" 2>/dev/null || break; sleep 1; done
 
-tr -d '\r' <"$out" | grep -E '^(# |PASS |FAIL |SKIP |POLYJOSE-VERIFY: )' || true
-final=$(tr -d '\r' <"$out" | grep -E '^POLYJOSE-VERIFY: ' | tail -n 1 || true)
+lines=$(tr -d '\r' <"$out" | grep -E '^(# |PASS |FAIL |SKIP |POLYJOSE-VERIFY: )' || true)
+[ -z "$lines" ] || printf '%s\n' "$lines"
+final=$(printf '%s\n' "$lines" | grep -E '^POLYJOSE-VERIFY: ' | tail -n 1 || true)
 if [ -z "$final" ]; then
   echo "$me: the app stopped before its final line (log: .build/logs/app.log)" >&2
   echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (no result)"
   exit 1
 fi
-counts=$(echo "$final" | sed -nE 's/^POLYJOSE-VERIFY: ([0-9]+)\/([0-9]+) PASS( \([0-9]+ skipped\))?$/\1 \2/p')
-passed=${counts% *}
-ran=${counts#* }
-[ -z "$counts" ] || [ "$ran" = "$expected_checks" ] || echo "$me: $ran checks ran; CATALOG.md lists $expected_checks" >&2
-[ -n "$counts" ] && [ "$passed" = "$ran" ] && [ "$ran" = "$expected_checks" ]
+
+# The pass rule (CATALOG.md, "Output and pass rule"): P = R and R + S = N, where P and R come
+# from the final line, S is the number of SKIP lines and N is expected_checks. The final line
+# must also agree with the lines above it, so a skip can't hide a missing check.
+count_lines() { printf '%s\n' "$lines" | grep -c "^$1 " || true; }
+pass_lines=$(count_lines PASS)
+fail_lines=$(count_lines FAIL)
+skip_lines=$(count_lines SKIP)
+counts=$(echo "$final" | sed -nE 's/^POLYJOSE-VERIFY: ([0-9]+)\/([0-9]+) PASS( \(([0-9]+) skipped\))?$/\1 \2 \4/p')
+read -r passed ran skipped <<<"$counts" || true
+[ -n "$counts" ] || { echo "$me: unexpected final line: $final" >&2; exit 1; }
+skipped=${skipped:-0}
+if [ "$passed" != "$pass_lines" ] || [ "$ran" != "$((pass_lines + fail_lines))" ] || [ "$skipped" != "$skip_lines" ]; then
+  echo "$me: the final line does not match the $pass_lines PASS, $fail_lines FAIL and $skip_lines SKIP lines" >&2
+  exit 1
+fi
+[ "$((ran + skip_lines))" = "$expected_checks" ] ||
+  echo "$me: $ran checks ran and $skip_lines were skipped; CATALOG.md lists $expected_checks" >&2
+[ "$passed" = "$ran" ] && [ "$((ran + skip_lines))" = "$expected_checks" ]

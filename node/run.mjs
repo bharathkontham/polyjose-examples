@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-/** The number of checks CATALOG.md lists for the pinned polyjose version (0.2.0). */
+/** The number of Node.js checks CATALOG.md lists for the pinned polyjose version (0.4.0). */
 const EXPECTED_CHECKS = 34;
 
 const [major, minor] = process.versions.node.split(".").map(Number);

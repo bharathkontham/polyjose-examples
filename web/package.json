@@ -12,6 +12,6 @@
     "start": "node serve.mjs"
   },
   "dependencies": {
-    "@polyjose/wasm": "0.2.0"
+    "@polyjose/wasm": "0.4.0"
   }
 }
