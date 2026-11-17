@@ -7,6 +7,12 @@
 #   ./run.sh                               against the published dev.polyjose:polyjose
 #                                          (the version pin is in build.gradle.kts)
 #   POLYJOSE_SRC=../../polyjose ./run.sh   against a local polyjose checkout (see build.sh)
+#   ./run.sh --playground                  the playground's demo walk instead of the checks
+#                                          (../PLAYGROUND.md, "Demo walk"): prints one line per
+#                                          step and `POLYJOSE-PLAYGROUND: N/M OK`, and exits 0 only
+#                                          when N = M and no captured POLYJOSE line holds a private
+#                                          or symmetric JWK member. The whole capture is kept in
+#                                          build/playground-logcat.txt.
 #
 # Which device it runs on:
 #   ANDROID_SERIAL set   that device: a phone over USB, or an emulator you started (`adb devices`
@@ -19,19 +25,28 @@
 # Environment:
 #   JAVA_HOME              a JDK, 17 or later (Gradle runs on it)
 #   ANDROID_HOME           the Android SDK, with platform-tools, the emulator and the AVD's image
-#   POLYJOSE_TIMEOUT       seconds to wait for the result line once the app starts (default 300)
+#   POLYJOSE_TIMEOUT       seconds to wait for the result line once the app starts (default 300;
+#                          900 with --playground)
 #   POLYJOSE_BOOT_TIMEOUT  seconds to wait for a started emulator to boot (default 300)
 # Build output goes to stderr; the check lines go to stdout.
 set -euo pipefail
 cd "$(dirname "$0")"
 
+mode=checks
+case "${1:-}" in
+  "") ;;
+  --playground) mode=playground ;;
+  *) echo "usage: run.sh [--playground]" >&2; exit 2 ;;
+esac
+
 app_id=dev.polyjose.examples
 activity=$app_id/.app.MainActivity
 apk=build/outputs/apk/debug/polyjose-examples-android-debug.apk
 expected_checks=44 # N: the number of Android checks CATALOG.md lists for the pinned polyjose (0.4.0)
+min_ran=34         # checks 1-34 never skip, so at least that many must run
 avd=${POLYJOSE_AVD:-polyjose-api34}
 port=${POLYJOSE_EMULATOR_PORT:-5580}
-timeout=${POLYJOSE_TIMEOUT:-300}
+if [ "$mode" = playground ]; then timeout=${POLYJOSE_TIMEOUT:-900}; else timeout=${POLYJOSE_TIMEOUT:-300}; fi
 boot_timeout=${POLYJOSE_BOOT_TIMEOUT:-300}
 
 [ -n "${ANDROID_HOME:-}" ] || { echo "run.sh: set ANDROID_HOME to the Android SDK" >&2; exit 2; }
@@ -42,7 +57,7 @@ emulator=$ANDROID_HOME/emulator/emulator
 
 timed_out() {
   echo "run.sh: $1" >&2
-  echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (timeout)"
+  if [ "$mode" = playground ]; then echo "POLYJOSE-PLAYGROUND: 0/0 OK (timeout)"; else echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (timeout)"; fi
   exit 1
 }
 
@@ -55,7 +70,13 @@ stop_emulator() {
   for _ in $(seq 1 30); do kill -0 "$emu_pid" 2>/dev/null || return 0; sleep 1; done
   kill "$emu_pid" 2>/dev/null || true
 }
-trap stop_emulator EXIT
+# The `adb logcat` that --playground starts to capture every line, stopped by its PID.
+capture_pid=""
+cleanup() {
+  [ -z "$capture_pid" ] || kill "$capture_pid" 2>/dev/null || true
+  stop_emulator
+}
+trap cleanup EXIT
 
 # The serial of the attached emulator that runs AVD $1, if there is one.
 emulator_running() {
@@ -65,6 +86,72 @@ emulator_running() {
     [ "$name" = "$1" ] && { echo "$s"; return 0; }
   done
   return 0
+}
+
+# --playground, after step 4's `logcat -c`: start the demo walk, capture every POLYJOSE line until
+# the walk's last line, and apply its pass rule (PLAYGROUND.md "Demo walk", "Secrets").
+playground_walk() {
+  mkdir -p build
+  local capture=build/playground-logcat.txt
+  "$adb" -s "$serial" logcat -v raw -s POLYJOSE:I >"$capture" 2>/dev/null &
+  capture_pid=$!
+  "$adb" -s "$serial" shell am start -n "$activity" --ez playgroundDemo true >/dev/null
+  echo "==> running the playground demo walk on $where (every line in $capture)" >&2
+  local printed=0 count final="" lines
+  local deadline=$((SECONDS + timeout))
+  while [ -z "$final" ]; do
+    lines=$(tr -d '\r' <"$capture" | grep -E '^(# |PLAYGROUND |POLYJOSE-PLAYGROUND: )' || true)
+    count=$(printf '%s' "$lines" | grep -c '' || true)
+    if [ "$count" -gt "$printed" ]; then
+      printf '%s\n' "$lines" | sed -n "$((printed + 1)),\$p"
+      printed=$count
+    fi
+    final=$(printf '%s\n' "$lines" | grep '^POLYJOSE-PLAYGROUND: ' | tail -n 1 || true)
+    [ -n "$final" ] && break
+    [ "$SECONDS" -lt "$deadline" ] || timed_out "no POLYJOSE-PLAYGROUND line within $timeout s (adb -s $serial logcat -s POLYJOSE)"
+    sleep 2
+  done
+  sleep 1
+  kill "$capture_pid" 2>/dev/null || true
+  wait "$capture_pid" 2>/dev/null || true
+  capture_pid=""
+  local ok_lines fail_lines n m status=0
+  ok_lines=$(printf '%s\n' "$lines" | grep -c '^PLAYGROUND OK ' || true)
+  fail_lines=$(printf '%s\n' "$lines" | grep -c '^PLAYGROUND FAIL ' || true)
+  if [[ "$final" =~ ^POLYJOSE-PLAYGROUND:\ ([0-9]+)/([0-9]+)\ OK$ ]]; then
+    n=${BASH_REMATCH[1]}
+    m=${BASH_REMATCH[2]}
+    if [ "$n" != "$ok_lines" ] || [ "$m" != "$((ok_lines + fail_lines))" ]; then
+      echo "run.sh: the final line does not match the $ok_lines OK and $fail_lines FAIL lines" >&2
+      status=1
+    fi
+    [ "$n" = "$m" ] && [ "$m" -gt 0 ] || status=1
+  else
+    echo "run.sh: unexpected final line: $final" >&2
+    status=1
+  fi
+  # Every LOG line the app mirrored must be in the capture, or the secrets check would miss some.
+  local mirrored captured
+  mirrored=$(printf '%s\n' "$lines" | sed -n 's/^# LOG lines mirrored: \([0-9]*\)$/\1/p' | tail -n 1)
+  captured=$(tr -d '\r' <"$capture" | grep -c '^LOG ' || true)
+  if [ -z "$mirrored" ] || [ "$captured" -lt "$mirrored" ]; then
+    echo "run.sh: the capture holds $captured LOG lines; the app mirrored ${mirrored:-an unknown number}" >&2
+    status=1
+  fi
+  # The secrets check: no private or symmetric JWK member in any captured line, also across the
+  # `LOG <tap>.<step> + ` continuation lines, joined back first.
+  local secrets
+  secrets=$(tr -d '\r' <"$capture" | awk '
+    /^LOG [0-9]+\.[0-9]+ \+ / { sub(/^LOG [0-9]+\.[0-9]+ \+ /, ""); line = line $0; next }
+    { if (NR > 1) print line; line = $0 }
+    END { print line }' | grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' || true)
+  if [ -n "$secrets" ]; then
+    echo "run.sh: the secrets check found $(printf '%s\n' "$secrets" | grep -c '') captured lines with a private or symmetric JWK member" >&2
+    status=1
+  else
+    echo "==> secrets check: no private or symmetric JWK member in $(grep -c '' "$capture") captured lines" >&2
+  fi
+  exit "$status"
 }
 
 # 1. Pick the device; start the emulator now, so it boots while the app builds.
@@ -117,6 +204,9 @@ echo "==> installing on $serial" >&2
 "$adb" -s "$serial" install -r "$apk" >/dev/null
 "$adb" -s "$serial" shell am force-stop "$app_id"
 "$adb" -s "$serial" logcat -c || true
+if [ "$mode" = playground ]; then
+  playground_walk # below; it exits
+fi
 "$adb" -s "$serial" shell am start -n "$activity" --ez autorun true >/dev/null
 
 # 5. Print the app's lines as they arrive, until the result line.
@@ -145,6 +235,11 @@ count_lines() { printf '%s\n' "$lines" | grep -c "^$1 " || true; }
 pass_lines=$(count_lines PASS)
 fail_lines=$(count_lines FAIL)
 skip_lines=$(count_lines SKIP)
+duplicates=$(printf '%s\n' "$lines" | awk '/^(PASS|FAIL|SKIP) / { sub(/:$/, "", $2); print $2 }' | sort | uniq -d)
+if [ -n "$duplicates" ]; then
+  echo "run.sh: duplicate check ids: $(printf '%s' "$duplicates" | tr '\n' ' ')" >&2
+  exit 1
+fi
 if [[ "$result" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS(\ \(([0-9]+)\ skipped\))?$ ]]; then
   passed=${BASH_REMATCH[1]}
   ran=${BASH_REMATCH[2]}
@@ -155,6 +250,9 @@ if [[ "$result" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS(\ \(([0-9]+)\ skip
   fi
   [ "$((ran + skip_lines))" = "$expected_checks" ] \
     || echo "run.sh: $ran checks ran and $skip_lines were skipped; CATALOG.md lists $expected_checks" >&2
-  [ "$passed" = "$ran" ] && [ "$((ran + skip_lines))" = "$expected_checks" ] && exit 0
+  [ "$ran" -ge "$min_ran" ] || echo "run.sh: $ran checks ran; checks 1-$min_ran never skip" >&2
+  [ "$passed" = "$ran" ] && [ "$((ran + skip_lines))" = "$expected_checks" ] && [ "$ran" -ge "$min_ran" ] && exit 0
+else
+  echo "run.sh: unexpected final line: $result" >&2
 fi
 exit 1
