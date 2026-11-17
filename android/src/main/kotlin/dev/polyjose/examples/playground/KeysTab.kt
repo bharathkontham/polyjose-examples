@@ -130,7 +130,7 @@ class KeysTab(private val p: Playground) {
 
     private fun deleteAll() {
         p.background({ Session.engine.deleteAll() }) { n ->
-            status.text = "Deleted $n playground keys."
+            status.text = "Deleted ${n.platform} Keystore keys and ${n.software} software keys."
             p.refreshAll()
         }
     }

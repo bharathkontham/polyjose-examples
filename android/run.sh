@@ -10,9 +10,12 @@
 #   ./run.sh --playground                  the playground's demo walk instead of the checks
 #                                          (../PLAYGROUND.md, "Demo walk"): prints one line per
 #                                          step and `POLYJOSE-PLAYGROUND: N/M OK`, and exits 0 only
-#                                          when N = M and no captured POLYJOSE line holds a private
-#                                          or symmetric JWK member. The whole capture is kept in
-#                                          build/playground-logcat.txt.
+#                                          when N = M (the walk's own secrets step, which looks for
+#                                          the secret values of its software keys in the log, is
+#                                          one of them), no captured POLYJOSE line holds a private
+#                                          or symmetric JWK member, and the capture doesn't hold the
+#                                          `d` value of the RFC 7515 A.2 test key. The whole capture
+#                                          is kept in build/playground-logcat.txt.
 #
 # Which device it runs on:
 #   ANDROID_SERIAL set   that device: a phone over USB, or an emulator you started (`adb devices`
@@ -91,6 +94,9 @@ emulator_running() {
 # --playground, after step 4's `logcat -c`: start the demo walk, capture every POLYJOSE line until
 # the walk's last line, and apply its pass rule (PLAYGROUND.md "Demo walk", "Secrets").
 playground_walk() {
+  # The private exponent `d` of the RFC 7515 Appendix A.2 RSA key (src/.../TestKeys.kt): a published
+  # test value, not a secret, and the walk's software RSA key, which the log must never hold.
+  local rfc7515_a2_d=Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97IjlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYTCBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLhBOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ
   mkdir -p build
   local capture=build/playground-logcat.txt
   "$adb" -s "$serial" logcat -v raw -s POLYJOSE:I >"$capture" 2>/dev/null &
@@ -138,13 +144,28 @@ playground_walk() {
     echo "run.sh: the capture holds $captured LOG lines; the app mirrored ${mirrored:-an unknown number}" >&2
     status=1
   fi
-  # The secrets check: no private or symmetric JWK member in any captured line, also across the
-  # `LOG <tap>.<step> + ` continuation lines, joined back first.
-  local secrets
-  secrets=$(tr -d '\r' <"$capture" | awk '
+  # The secrets checks, on the capture with the `LOG <tap>.<step> + ` continuation lines joined
+  # back first. By value: the walk's own step looked for the secret values of its software keys
+  # (it must have run, and passed); here, without relying on the app's report, the `d` value of
+  # the RFC 7515 A.2 test key (published; the walk's software RSA key) must not be in the
+  # capture. By name: no private or symmetric JWK member in any line.
+  local joined secrets
+  joined=$(tr -d '\r' <"$capture" | awk '
     /^LOG [0-9]+\.[0-9]+ \+ / { sub(/^LOG [0-9]+\.[0-9]+ \+ /, ""); line = line $0; next }
     { if (NR > 1) print line; line = $0 }
-    END { print line }' | grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' || true)
+    END { print line }')
+  # (here-strings, not `printf | grep -q`: with pipefail, grep -q stopping early fails the pipe.)
+  if ! grep -qx 'PLAYGROUND OK secrets/no-secret-value-in-log' <<<"$lines"; then
+    echo "run.sh: the walk's secrets/no-secret-value-in-log step did not pass" >&2
+    status=1
+  fi
+  if grep -qF -- "$rfc7515_a2_d" <<<"$joined"; then
+    echo "run.sh: the secrets check found the RFC 7515 A.2 test key's d value in the capture" >&2
+    status=1
+  else
+    echo "==> secrets check: the RFC 7515 A.2 test key's d value is not in the capture" >&2
+  fi
+  secrets=$(printf '%s\n' "$joined" | grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' || true)
   if [ -n "$secrets" ]; then
     echo "run.sh: the secrets check found $(printf '%s\n' "$secrets" | grep -c '') captured lines with a private or symmetric JWK member" >&2
     status=1

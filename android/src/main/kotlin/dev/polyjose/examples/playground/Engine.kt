@@ -41,6 +41,7 @@ import dev.polyjose.jwkGenerateOct
 import dev.polyjose.jwkGenerateOkp
 import dev.polyjose.jwkToPublic
 import dev.polyjose.jwtVerify
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** The demo payloads (PLAYGROUND.md `option.payload`): fixed, never free text. */
@@ -142,6 +143,24 @@ class SoftwareKey internal constructor(val id: Int, val alg: String, val crv: St
 
     internal fun secret(): String = jwk
 
+    /**
+     * The values of the key's private or symmetric members (RFC 7518 §6.2.2, §6.3.2, §6.4.1;
+     * RFC 8037 §2), every string inside `oth` included: for the demo walk's secrets check only,
+     * which compares them with the log and never logs or shows them.
+     */
+    internal fun secretValues(): List<String> {
+        val out = ArrayList<String>()
+        fun leaves(v: Any?) {
+            when (v) {
+                is String -> if (v.isNotEmpty()) out += v
+                is JSONArray -> for (i in 0 until v.length()) leaves(v.get(i))
+                is JSONObject -> for (name in v.keys()) leaves(v.get(name))
+            }
+        }
+        for (name in SECRET_MEMBERS) if (json.has(name)) leaves(json.get(name))
+        return out
+    }
+
     /** The public JWK, or null for an oct key (it has none). */
     fun publicJwk(): String? = if (isOct) null else jwkToPublic(jwk)
 
@@ -155,8 +174,12 @@ sealed class KeyHandle {
 
     /** "Key lives in": the platform's report, or app memory. */
     val lives: String get() = when (this) {
-        is Soft -> "app memory (software)"
+        is Soft -> SOFTWARE_LIVES
         is Platform -> key.securityLevel.name
+    }
+
+    companion object {
+        const val SOFTWARE_LIVES = "app memory (software)"
     }
 }
 
@@ -197,6 +220,9 @@ class Engine(private val log: PlaygroundLog, private val authorizers: Authorizer
     private var lastEncrypt: Last? = null
 
     @Synchronized fun softwareKeys(): List<SoftwareKey> = software.toList()
+
+    /** Called with every software key the engine makes, on the thread that made it (the demo walk's secrets check). */
+    @Volatile var softwareKeyMade: ((SoftwareKey) -> Unit)? = null
 
     /** Runs [req] and returns what its result card shows. Call it on the playground executor. */
     fun perform(req: Request, device: DeviceInfo): Result {
@@ -398,6 +424,7 @@ class Engine(private val log: PlaygroundLog, private val authorizers: Authorizer
                 if (software.size > 50) software.removeAt(0)
             }
         }
+        softwareKeyMade?.invoke(key)
         logSoftware(tap, key, r)
         return key
     }
@@ -636,7 +663,7 @@ class Engine(private val log: PlaygroundLog, private val authorizers: Authorizer
     /** The public JWK and thumbprint of a software key (none for an oct key: RFC 7638 §7). */
     fun showSoftware(id: Int): Opened? {
         val key = synchronized(this) { software.firstOrNull { it.id == id } } ?: return null
-        val pub = key.publicJwk() ?: return Opened("software ${key.id}", "app memory (software)", null, null, null)
+        val pub = key.publicJwk() ?: return Opened("software ${key.id}", KeyHandle.SOFTWARE_LIVES, null, null, null)
         val tap = log.begin("Show software key ${key.id} ${key.alg}")
         tap.input(listOf(Field.id("op", "key-open"), Field.id("store", "software"), Field.id("alg", key.alg), Field.num("key", key.id.toLong())))
         val jwk = publicOnly(pub)
@@ -645,7 +672,7 @@ class Engine(private val log: PlaygroundLog, private val authorizers: Authorizer
         val tp = thumbprint(pub)
         tap.call("jwkThumbprint", now() - t0)
         tap.thumbprint(tp)
-        return Opened("software ${key.id}", "app memory (software)", jwk, tp, null)
+        return Opened("software ${key.id}", KeyHandle.SOFTWARE_LIVES, jwk, tp, null)
     }
 
     /** Keys tab, **Delete**. */
@@ -656,14 +683,25 @@ class Engine(private val log: PlaygroundLog, private val authorizers: Authorizer
         return try {
             deleteKeystoreKey(alias)
             tap.keyDelete(alias, now() - t0)
+            // Verify or Decrypt on its own must not reuse a deleted key.
+            synchronized(this) {
+                if ((lastSign?.key as? KeyHandle.Platform)?.alias == alias) lastSign = null
+                if ((lastEncrypt?.key as? KeyHandle.Platform)?.alias == alias) lastEncrypt = null
+            }
             null
         } catch (t: Throwable) {
             ErrorCode.of(t).also { tap.error(it, now() - t0) }
         }
     }
 
-    /** Keys tab, **Delete all playground keys**: every alias with the playground prefix, nothing else. */
-    fun deleteAll(): Int {
+    /** What **Delete all playground keys** removed. */
+    class Deleted(val platform: Int, val software: Int)
+
+    /**
+     * Keys tab, **Delete all playground keys**: every alias with the playground prefix (nothing
+     * else in the Keystore), and this session's software keys.
+     */
+    fun deleteAll(): Deleted {
         val tap = log.begin("Delete all playground keys")
         tap.input(listOf(Field.id("op", "key-delete-all"), Field.id("store", "keystore"), Field.id("alg", "-")))
         var n = 0
@@ -677,10 +715,11 @@ class Engine(private val log: PlaygroundLog, private val authorizers: Authorizer
                 tap.error(ErrorCode.of(t), now() - t0)
             }
         }
-        synchronized(this) {
-            if (lastSign?.key is KeyHandle.Platform) lastSign = null
-            if (lastEncrypt?.key is KeyHandle.Platform) lastEncrypt = null
+        val soft = synchronized(this) {
+            lastSign = null
+            lastEncrypt = null
+            software.size.also { software.clear() }
         }
-        return n
+        return Deleted(n, soft)
     }
 }

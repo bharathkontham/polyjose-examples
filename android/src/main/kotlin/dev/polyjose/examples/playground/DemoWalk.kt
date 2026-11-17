@@ -3,10 +3,12 @@
 // - every enabled cell of the support matrix that needs no prompt, which must succeed;
 // - Run anyway on every disabled cell, which must give the code of its row (and leave no key);
 // - every failure action, which must give its code (a disabled one must show its reason);
-// - the Keys tab's actions.
+// - the Keys tab's actions;
+// - the secrets check: no secret value of a software key the walk made is in the log.
 // Enabled cells with user authentication are skipped: no one is there to authenticate. Each step
-// prints `PLAYGROUND OK <name>` or `PLAYGROUND FAIL <name>: <what>` (codes only), and the walk ends
-// with `POLYJOSE-PLAYGROUND: N/M OK` after deleting its keys.
+// prints `PLAYGROUND OK <name>` or `PLAYGROUND FAIL <name>: <what>` (codes and counts only), and
+// the walk ends with `POLYJOSE-PLAYGROUND: N/M OK` after deleting the keys it made, and only those
+// (any app can start the walk through the exported launcher; keys made by hand stay).
 package dev.polyjose.examples.playground
 
 import dev.polyjose.AndroidKeystoreKey
@@ -17,32 +19,62 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
     private val steps = ArrayList<Step>()
     private var skipped = 0
 
+    /** Every alias the walk's taps used: what the cleanup deletes. */
+    private val aliases = LinkedHashSet<String>()
+
+    /**
+     * The secret-member values of every software key the walk makes (also the other keys of the
+     * wrong-key actions, and keys the 50-key list later drops), for the secrets check. Never
+     * logged, printed or shown: only their number is.
+     */
+    private val secretValues = HashSet<String>()
+    private var softwareKeysMade = 0
+
+    /** Every line the walk printed, which the secrets check searches too. */
+    private val printed = StringBuilder()
+
+    private fun say(line: String) {
+        printed.append(line).append('\n')
+        emit(line)
+    }
+
     fun start() {
         val device = p.device()
         Session.executor.execute {
-            emit("# playground demo walk: Android ${device.release} (API ${device.api}) on ${device.model}, StrongBox ${device.hasStrongBox}, lock screen ${device.lockScreen}")
+            say("# playground demo walk: Android ${device.release} (API ${device.api}) on ${device.model}, StrongBox ${device.hasStrongBox}, lock screen ${device.lockScreen}")
             build(device)
             var ok = 0
-            for (s in steps) {
-                val problem = try {
-                    s.check()
-                } catch (t: Throwable) {
-                    "unexpected ${ErrorCode.of(t).name}"
-                }
-                if (problem == null) {
-                    ok++
-                    emit("PLAYGROUND OK ${s.name}")
-                } else {
-                    emit("PLAYGROUND FAIL ${s.name}: $problem")
-                }
+            Session.engine.softwareKeyMade = { key ->
+                softwareKeysMade++
+                secretValues += key.secretValues()
             }
-            val cleanup = Session.engine.deleteAll()
-            val left = PlaygroundKeys.aliases().size
-            if (left == 0) ok++ else emit("PLAYGROUND FAIL keys/cleanup: $left playground keys left")
-            if (left == 0) emit("PLAYGROUND OK keys/cleanup ($cleanup deleted)")
-            emit("# $skipped enabled cells with user authentication skipped (they prompt)")
-            emit("# LOG lines mirrored: ${Session.log.mirrored}")
-            emit("POLYJOSE-PLAYGROUND: $ok/${steps.size + 1} OK")
+            try {
+                for (s in steps) {
+                    val problem = try {
+                        s.check()
+                    } catch (t: Throwable) {
+                        "unexpected ${ErrorCode.of(t).name}"
+                    }
+                    if (problem == null) {
+                        ok++
+                        say("PLAYGROUND OK ${s.name}")
+                    } else {
+                        say("PLAYGROUND FAIL ${s.name}: $problem")
+                    }
+                }
+            } finally {
+                Session.engine.softwareKeyMade = null
+                secretValues.clear()
+            }
+            // Cleanup: the walk's own platform keys, and only those.
+            var deleted = 0
+            for (a in aliases) if (PlaygroundKeys.exists(a) && Session.engine.delete(a) == null) deleted++
+            val left = aliases.count { PlaygroundKeys.exists(it) }
+            if (left == 0) ok++ else say("PLAYGROUND FAIL keys/cleanup: $left of the walk's keys left")
+            if (left == 0) say("PLAYGROUND OK keys/cleanup ($deleted deleted)")
+            say("# $skipped enabled cells with user authentication skipped (they prompt)")
+            say("# LOG lines mirrored: ${Session.log.mirrored}")
+            say("POLYJOSE-PLAYGROUND: $ok/${steps.size + 1} OK")
             p.activity.runOnUiThread { p.refreshAll() }
         }
     }
@@ -50,6 +82,9 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
     private fun step(name: String, check: () -> String?) {
         steps += Step(name, check)
     }
+
+    /** A tap of the walk: [Engine.perform], with the alias it used kept for the cleanup. */
+    private fun perform(req: Request, d: DeviceInfo): Result = Session.engine.perform(req, d).also { r -> r.alias?.let { aliases += it } }
 
     private fun name(sel: Selection, what: String): String = buildString {
         append(if (sel.kind == Kind.Sign) "sign/" else "encrypt/")
@@ -107,7 +142,7 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
         if (c.enabled) {
             var alias: String? = null
             step(name(sel, if (sel.kind == Kind.Sign) "jws-sign-verify" else "jwe-round-trip")) {
-                val r = Session.engine.perform(Request(sel), device)
+                val r = perform(Request(sel), device)
                 alias = r.alias
                 judge(r, null, device, sel)
             }
@@ -115,13 +150,13 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
                 step(name(sel, "jwt-sign-verify")) {
                     // The key the step above created, chosen as on the Key picker (Open again for a platform key).
                     val key = alias?.let { KeyChoice.Platform(it) } ?: KeyChoice.New
-                    val r = Session.engine.perform(Request(sel.copy(jwt = true, key = key)), device)
+                    val r = perform(Request(sel.copy(jwt = true, key = key)), device)
                     judge(r, null, device, sel)
                 }
             }
         } else {
             step(name(sel, "anyway")) {
-                val r = Session.engine.perform(Request(sel, anyway = true), device)
+                val r = perform(Request(sel, anyway = true), device)
                 judge(r, c.expected, device, sel)
             }
         }
@@ -184,16 +219,33 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
         }
         // 8. The Keys tab.
         keysTab(d)
+        // 9. The secrets check (PLAYGROUND.md "Secrets"), by value: no secret member's value of a
+        // software key the walk made is anywhere in the log, continuations joined, or in the
+        // walk's own lines. It reports counts only, never a value.
+        step("secrets/no-secret-value-in-log") {
+            val text = Session.log.joined() + "\n" + printed
+            val found = secretValues.count { text.contains(it) }
+            say("# secrets: ${secretValues.size} secret values of $softwareKeysMade software keys checked against ${text.length} characters of log")
+            when {
+                softwareKeysMade == 0 || secretValues.isEmpty() -> "no software key was made"
+                found > 0 -> "$found of ${secretValues.size} secret values are in the log"
+                else -> null
+            }
+        }
     }
 
     private fun failureStep(sel: Selection, f: Failure, d: DeviceInfo) {
         val reason = f.reason(sel)
         val s = if (f == Failure.SignExpired) sel.copy(jwt = true) else sel
         step(name(s, "failure-${f.id}")) {
-            val r = Session.engine.perform(Request(s, failure = f), d)
+            val r = perform(Request(s, failure = f), d)
+            // "Key lives in" names the action's key, not the other key of a wrong-key action.
+            val lives = if (s.store == Store.Software) KeyHandle.SOFTWARE_LIVES else r.level?.name
+            val deleted = f == Failure.SignDeletedKey || f == Failure.EncryptDeletedKey
             when {
                 reason != null -> if (r.code == null && reason.id in r.notes) null else "expected disabled (${reason.id}), got ${r.code?.name ?: "no reason"}"
                 r.code?.name != f.expected -> "expected ${f.expected}, got ${r.code?.name ?: "success"}"
+                !deleted && r.keyLives != lives -> "Key lives in: ${r.keyLives}, expected $lives"
                 else -> null
             }
         }
@@ -201,11 +253,11 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
 
     private fun buttonPair(sel: Selection, first: Action, second: Action, d: DeviceInfo) {
         step(name(sel, first.id)) {
-            val r = Session.engine.perform(Request(sel, action = first), d)
+            val r = perform(Request(sel, action = first), d)
             if (r.code != null) "expected success, got ${r.code?.name}" else if (r.token == null) "no token" else null
         }
         step(name(sel, second.id)) {
-            val r = Session.engine.perform(Request(sel, action = second), d)
+            val r = perform(Request(sel, action = second), d)
             if (r.code != null) "expected success, got ${r.code?.name}" else judge(r, null, d, sel)
         }
     }
@@ -215,6 +267,7 @@ class DemoWalk(private val p: Playground, private val emit: (String) -> Unit) {
         step("keys/create/keystore/ES256") {
             val r = Session.engine.createKey(Selection(Kind.Sign, store = Store.Keystore, alg = "ES256"), d)
             alias = r.alias
+            r.alias?.let { aliases += it }
             if (r.code != null) "expected success, got ${r.code?.name}" else if (alias?.startsWith(PlaygroundKeys.PREFIX) != true) "no alias" else null
         }
         step("keys/list") {

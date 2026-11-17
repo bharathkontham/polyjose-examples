@@ -101,7 +101,7 @@ The app opens on **Checks**. Four more tabs in the bottom row make it a playgrou
 
 - **Sign**: a JWS or a JWT with a key from any store (Software, Android Keystore (TEE), StrongBox `Preferred` or `Required`), verified in software with an explicit allow-list.
 - **Encrypt**: a JWE encrypted in software to the key's public JWK and decrypted with the key in its store.
-- **Keys**: the "This device" card and the playground's keys (aliases `dev.polyjose.examples.playground.<alg>.<n>`), each with **Open again** (public JWK and RFC 7638 thumbprint) and **Delete**, plus **Create key** and **Delete all playground keys**. Software keys live in app memory for the session only.
+- **Keys**: the "This device" card and the playground's keys (aliases `dev.polyjose.examples.playground.<alg>.<n>`), each with **Open again** (public JWK and RFC 7638 thumbprint) and **Delete**, plus **Create key** and **Delete all playground keys** (also this session's software keys). Software keys live in app memory for the session only.
 - **Log**: every step of every tap, with **Copy all**, **Share** and **Clear**.
 
 Each picker row comes from the support matrix in [`playground/Matrix.kt`](src/main/kotlin/dev/polyjose/examples/playground/Matrix.kt). A row the device can't do is disabled and says why ("needs Android 12 (API 31)", "no StrongBox on this device", "StrongBox can't do ES384", "per-use isn't possible for ECDH keys", "set a screen lock"). Its **Run anyway** makes the call and shows the code the library returns. Every row has an info button with its explanation ([`playground/Explanations.kt`](src/main/kotlin/dev/polyjose/examples/playground/Explanations.kt)). **Try a failure** runs one misuse (a tampered token, another algorithm allowed, the wrong key, an expired JWT, a deleted key) and shows its code. The result card shows the token, the protected header, the outcome or the error code with its meaning, "Key lives in" as the platform reports it, and the time of each step.
@@ -116,13 +116,13 @@ The log holds no secrets: no private or symmetric key member, content key, share
 ./run.sh --playground
 ```
 
-It starts the app with `--ez playgroundDemo true`. The walk then runs every enabled cell of the matrix that needs no prompt, **Run anyway** on every disabled cell, every failure action and the Keys tab's actions, through the code the buttons call. It deletes its keys at the end. It prints one `PLAYGROUND OK <step>` line per step and ends with:
+It starts the app with `--ez playgroundDemo true`. The walk then runs every enabled cell of the matrix that needs no prompt, **Run anyway** on every disabled cell, every failure action and the Keys tab's actions, through the code the buttons call. It deletes the Keystore keys it made at the end, and only those: keys you made by hand stay. It prints one `PLAYGROUND OK <step>` line per step and ends with:
 
 ```
-POLYJOSE-PLAYGROUND: 325/325 OK
+POLYJOSE-PLAYGROUND: 326/326 OK
 ```
 
-That is the result on the `polyjose-api34` emulator (API 34, no StrongBox, no screen lock). There, every option with user authentication is disabled ("set a screen lock"), and its Run anyway gives `PlatformKeyFailed`, except per-use on an ECDH key, which gives `UnsupportedAlgorithm`. StrongBox `Required` gives `PlatformKeyFailed` and leaves no key, and `Preferred` reports `Software`, because the emulator's keys are software. `run.sh --playground` exits 0 only when every step gave its expected outcome, and when no captured `POLYJOSE` line holds a private or symmetric JWK member (`"d"`, `"p"`, `"q"`, `"dp"`, `"dq"`, `"qi"`, `"oth"`, `"k"`). The whole capture is in `build/playground-logcat.txt`.
+That is the result on the `polyjose-api34` emulator (API 34, no StrongBox, no screen lock). There, every option with user authentication is disabled ("set a screen lock"), and its Run anyway gives `PlatformKeyFailed`, except per-use on an ECDH key, which gives `UnsupportedAlgorithm`. StrongBox `Required` gives `PlatformKeyFailed` and leaves no key, and `Preferred` reports `Software`, because the emulator's keys are software. `run.sh --playground` exits 0 only when every step gave its expected outcome and the secrets checks find nothing. The walk's last step, `secrets/no-secret-value-in-log`, looks for the values of the private and symmetric members of every software key the walk made (also the other key of each wrong-key action) in the whole log, long lines joined, and reports only how many it checked. `run.sh` then looks for the `d` value of the RFC 7515 A.2 test key (the walk's software RSA key) in the capture, and for any line with a private or symmetric JWK member (`"d"`, `"p"`, `"q"`, `"dp"`, `"dq"`, `"qi"`, `"oth"`, `"k"`). The whole capture is in `build/playground-logcat.txt`.
 
 ### On your device
 
@@ -135,12 +135,13 @@ The emulator proves the code paths, not where keys live. These steps are the dev
 5. **Sign**, StrongBox, `Required`, ES256. With StrongBox: "Key lives in: StrongBox". Without: the row is disabled ("no StrongBox on this device"), and Run anyway gives `PlatformKeyFailed` with no key left. Then `Preferred`: record the reported level (`StrongBox`, or `TrustedEnvironment` without StrongBox).
 6. **Sign**, StrongBox, `Required`, ES384: disabled ("StrongBox can't do ES384"); Run anyway gives `UnsupportedAlgorithm`.
 7. **Encrypt**, RSA-OAEP-256, Android Keystore (TEE), **Round trip**. Expected: the plaintext is the demo payload. Then the same with StrongBox `Required`: record what it gives, success or the code (RSA-OAEP-256 in StrongBox isn't verified on a device yet).
-8. **Time-bound**: Sign, Android Keystore (TEE), ES256, User authentication "Time-bound", 30 seconds. Tap **Sign and verify** before any prompt. Expected: `UserAuthenticationRequired`, and the new key is chosen under Key. Tap **Authenticate now**, authenticate, then **Sign and verify** within 30 seconds. Expected: verified. Wait past the window and sign again. Expected: `UserAuthenticationRequired`.
+8. **Time-bound**: Sign, Android Keystore (TEE), ES256, User authentication "Time-bound", 30 seconds. Tap **Sign and verify** before any prompt. Expected: `UserAuthenticationRequired`, and the new key is chosen under Key. Android counts unlocking the phone as an authentication: if it was unlocked within the last 30 seconds, the key may sign without a prompt, so wait 30 seconds and tap again. Tap **Authenticate now**, authenticate, then **Sign and verify** within 30 seconds. Expected: verified. Wait past the window and sign again. Expected: `UserAuthenticationRequired`.
 9. **Per use**: Sign, Android Keystore (TEE), ES256, User authentication "Per use", **Sign and verify**. A prompt appears during the signature: authenticate. Expected: verified. Again, and press **Cancel**. Expected: `UserAuthenticationRequired`. Record what each prompt showed.
 10. **PS256**: Sign, Android Keystore (TEE), PS256, **Sign and verify**. Expected: verified in software (polyjose checks the Keystore's PSS signature).
-11. **Log:** tap **Share** (or **Copy all**) and save the text. Check it has no private member: `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' log.txt` finds nothing. Then **Keys** → **Delete all playground keys**.
+11. **Keys:** with the time-bound and per-use keys of steps 8 and 9 still there, open the Keys tab and tap **Refresh**. Expected: both are listed with their authentication, and no prompt appears.
+12. **Log:** tap **Share** (or **Copy all**) and save the text. Check it has no private member: `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' log.txt` finds nothing (the demo walk also checks the secret values themselves). Then **Keys** → **Delete all playground keys**, which also drops this session's software keys.
 
-Record one row per device: the model, Android and API level, the app's commit, the Checks line, the default key level (step 4), the TEE results for sign, ECDH and RSA-OAEP-256, the StrongBox results for ES256, RS256, ECDH P-256 and RSA-OAEP-256 (or "no StrongBox"), step 8, step 9 (approve, cancel) and step 10. Write PASS, FAIL with the code, or SKIPPED with the reason in each cell.
+Record one row per device: the model, Android and API level, the app's commit, the Checks line, the default key level (step 4), the TEE results for sign, ECDH and RSA-OAEP-256, the StrongBox results for ES256, RS256, ECDH P-256 and RSA-OAEP-256 (or "no StrongBox"), step 8, step 9 (approve, cancel), step 10 and step 11. Write PASS, FAIL with the code, or SKIPPED with the reason in each cell.
 
 ## Test keys
 
