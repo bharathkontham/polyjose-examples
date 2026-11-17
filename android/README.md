@@ -18,7 +18,7 @@ Needs a JDK, 17 or later (`JAVA_HOME`), and the Android SDK with platform-tools 
 POLYJOSE-VERIFY: 42/42 PASS (2 skipped)
 ```
 
-That is the result on the `polyjose-api34` emulator (Android 14, API 34, no StrongBox): the two StrongBox checks that need StrongBox skip. On a device with StrongBox and API 31 or later it is `43/43 PASS (1 skipped)`. It exits 0 only when every check that ran passed and every check of the catalog either ran or was skipped. After `POLYJOSE_TIMEOUT` seconds (default 300) without a result line it prints `POLYJOSE-VERIFY: 0/44 PASS (timeout)` and exits 1. The output format and the pass rule are in [CATALOG.md](../CATALOG.md#output-and-pass-rule).
+That is the result on the `polyjose-api34` emulator (Android 14, API 34, no StrongBox): the two StrongBox checks that need StrongBox skip. On a device with StrongBox and API 31 or later it is `43/43 PASS (1 skipped)`. It exits 0 only when every check that ran passed, every check of the catalog either ran or was skipped, checks 1–34 (which never skip) all ran, and no check id appears twice. After `POLYJOSE_TIMEOUT` seconds (default 300) without a result line it prints `POLYJOSE-VERIFY: 0/44 PASS (timeout)` and exits 1. The output format and the pass rule are in [CATALOG.md](../CATALOG.md#output-and-pass-rule).
 
 Which device `run.sh` uses:
 
@@ -93,7 +93,54 @@ Not in this app yet. polyjose 0.4.0 has the unverified decode functions; this ex
 
 Checks: `platform-key/keystore/*`, `platform-key/strongbox/*` ([CATALOG.md](../CATALOG.md#android-androidkeystorekey)). They need no user authentication, use the aliases `dev.polyjose.examples.check.<run>.…`, and delete their keys by the end of the run, also when a check fails.
 
-Ran on: the `polyjose-api34` emulator (Android 14, API 34, no StrongBox), `42/42 PASS (2 skipped)`: `platform-key/strongbox/es256-sign` and `platform-key/strongbox/ecdh-es-a256kw-p-256` skip with `no StrongBox on this device`. There, a `StrongBox.Preferred` key reports `Software`. That proves the code paths, not the hardware: only a run on a device shows the TEE or StrongBox. [PLAYGROUND.md](../PLAYGROUND.md) describes the playground that will try each key store by hand.
+Ran on: the `polyjose-api34` emulator (Android 14, API 34, no StrongBox), `42/42 PASS (2 skipped)`: `platform-key/strongbox/es256-sign` and `platform-key/strongbox/ecdh-es-a256kw-p-256` skip with `no StrongBox on this device`. There, a `StrongBox.Preferred` key reports `Software`. Below API 31 the ECDH-ES checks skip with `needs API 31`, and below API 28 `platform-key/strongbox/required-when-absent` skips with `needs API 28`. That proves the code paths, not the hardware: only a run on a device shows the TEE or StrongBox. The [playground](#playground) tries each key store by hand.
+
+## Playground
+
+The app opens on **Checks**. Four more tabs in the bottom row make it a playground ([PLAYGROUND.md](../PLAYGROUND.md) is the contract):
+
+- **Sign**: a JWS or a JWT with a key from any store (Software, Android Keystore (TEE), StrongBox `Preferred` or `Required`), verified in software with an explicit allow-list.
+- **Encrypt**: a JWE encrypted in software to the key's public JWK and decrypted with the key in its store.
+- **Keys**: the "This device" card and the playground's keys (aliases `dev.polyjose.examples.playground.<alg>.<n>`), each with **Open again** (public JWK and RFC 7638 thumbprint) and **Delete**, plus **Create key** and **Delete all playground keys**. Software keys live in app memory for the session only.
+- **Log**: every step of every tap, with **Copy all**, **Share** and **Clear**.
+
+Each picker row comes from the support matrix in [`playground/Matrix.kt`](src/main/kotlin/dev/polyjose/examples/playground/Matrix.kt). A row the device can't do is disabled and says why ("needs Android 12 (API 31)", "no StrongBox on this device", "StrongBox can't do ES384", "per-use isn't possible for ECDH keys", "set a screen lock"). Its **Run anyway** makes the call and shows the code the library returns. Every row has an info button with its explanation ([`playground/Explanations.kt`](src/main/kotlin/dev/polyjose/examples/playground/Explanations.kt)). **Try a failure** runs one misuse (a tampered token, another algorithm allowed, the wrong key, an expired JWT, a deleted key) and shows its code. The result card shows the token, the protected header, the outcome or the error code with its meaning, "Key lives in" as the platform reports it, and the time of each step.
+
+Platform keys go through [`PlatformKeysKeystore.kt`](src/main/kotlin/dev/polyjose/examples/PlatformKeysKeystore.kt) and [`PlatformKeysStrongBox.kt`](src/main/kotlin/dev/polyjose/examples/PlatformKeysStrongBox.kt), the files the checks use. Every polyjose call runs on one background thread, never the main thread: a key with user authentication blocks its thread while the prompt is up. For a **time-bound** key, **Authenticate now** shows the framework `BiometricPrompt`, and the key then works for its window. For a **per-use** key, polyjose's `BiometricPromptAuthorizer` shows the prompt during each signature or decryption. Prompted keys need API 28 and a secure lock screen; the app declares `android.permission.USE_BIOMETRIC`.
+
+The log holds no secrets: no private or symmetric key member, content key, shared secret or error message, only public JWKs, thumbprints, aliases, headers, demo tokens, error codes and timings. Each line also goes to logcat as `LOG <tap>.<step> <event> …` under the tag `POLYJOSE` (`adb logcat -s POLYJOSE`).
+
+### The demo walk
+
+```sh
+./run.sh --playground
+```
+
+It starts the app with `--ez playgroundDemo true`. The walk then runs every enabled cell of the matrix that needs no prompt, **Run anyway** on every disabled cell, every failure action and the Keys tab's actions, through the code the buttons call. It deletes its keys at the end. It prints one `PLAYGROUND OK <step>` line per step and ends with:
+
+```
+POLYJOSE-PLAYGROUND: 325/325 OK
+```
+
+That is the result on the `polyjose-api34` emulator (API 34, no StrongBox, no screen lock). There, every option with user authentication is disabled ("set a screen lock"), and its Run anyway gives `PlatformKeyFailed`, except per-use on an ECDH key, which gives `UnsupportedAlgorithm`. StrongBox `Required` gives `PlatformKeyFailed` and leaves no key, and `Preferred` reports `Software`, because the emulator's keys are software. `run.sh --playground` exits 0 only when every step gave its expected outcome, and when no captured `POLYJOSE` line holds a private or symmetric JWK member (`"d"`, `"p"`, `"q"`, `"dp"`, `"dq"`, `"qi"`, `"oth"`, `"k"`). The whole capture is in `build/playground-logcat.txt`.
+
+### On your device
+
+The emulator proves the code paths, not where keys live. These steps are the device run, by hand:
+
+1. Build and install the debug app: `./gradlew installDebug` with the phone connected, or `./gradlew assembleDebug` and `adb install -r build/outputs/apk/debug/polyjose-examples-android-debug.apk`. Use a device with Android 12 (API 31) or later (Android 14, API 34, for RSA-OAEP-256), a screen lock (PIN, pattern or password) and an enrolled strong biometric (fingerprint or face). Record the model and the Android version.
+2. **Checks:** tap **Run the checks**. Expected: `43/43 PASS (1 skipped)` with StrongBox, `42/42 PASS (2 skipped)` without. Record the line.
+3. **Keys:** read the "This device" card: model, Android and API level, emulator (no), StrongBox, secure lock screen (yes).
+4. **Sign**, Android Keystore (TEE), ES256, **Sign and verify**. Expected: verified, "Key lives in: TrustedEnvironment".
+5. **Sign**, StrongBox, `Required`, ES256. With StrongBox: "Key lives in: StrongBox". Without: the row is disabled ("no StrongBox on this device"), and Run anyway gives `PlatformKeyFailed` with no key left. Then `Preferred`: record the reported level (`StrongBox`, or `TrustedEnvironment` without StrongBox).
+6. **Sign**, StrongBox, `Required`, ES384: disabled ("StrongBox can't do ES384"); Run anyway gives `UnsupportedAlgorithm`.
+7. **Encrypt**, RSA-OAEP-256, Android Keystore (TEE), **Round trip**. Expected: the plaintext is the demo payload. Then the same with StrongBox `Required`: record what it gives, success or the code (RSA-OAEP-256 in StrongBox isn't verified on a device yet).
+8. **Time-bound**: Sign, Android Keystore (TEE), ES256, User authentication "Time-bound", 30 seconds. Tap **Sign and verify** before any prompt. Expected: `UserAuthenticationRequired`, and the new key is chosen under Key. Tap **Authenticate now**, authenticate, then **Sign and verify** within 30 seconds. Expected: verified. Wait past the window and sign again. Expected: `UserAuthenticationRequired`.
+9. **Per use**: Sign, Android Keystore (TEE), ES256, User authentication "Per use", **Sign and verify**. A prompt appears during the signature: authenticate. Expected: verified. Again, and press **Cancel**. Expected: `UserAuthenticationRequired`. Record what each prompt showed.
+10. **PS256**: Sign, Android Keystore (TEE), PS256, **Sign and verify**. Expected: verified in software (polyjose checks the Keystore's PSS signature).
+11. **Log:** tap **Share** (or **Copy all**) and save the text. Check it has no private member: `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' log.txt` finds nothing. Then **Keys** → **Delete all playground keys**.
+
+Record one row per device: the model, Android and API level, the app's commit, the Checks line, the default key level (step 4), the TEE results for sign, ECDH and RSA-OAEP-256, the StrongBox results for ES256, RS256, ECDH P-256 and RSA-OAEP-256 (or "no StrongBox"), step 8, step 9 (approve, cancel) and step 10. Write PASS, FAIL with the code, or SKIPPED with the reason in each cell.
 
 ## Test keys
 

@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The playground's prompted keys: the framework BiometricPrompt and polyjose's
+         BiometricPromptAuthorizer need it (a normal, install-time permission). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
     <application
         android:allowBackup="false"
         android:label="polyjose examples"
         android:theme="@android:style/Theme.DeviceDefault">
         <!-- Exported because this is an example app: the launcher and run.sh (`adb shell am start`)
-             start it. It holds no secrets; every key it uses is generated or a published test key. -->
+             start it. It holds no secrets; every key it uses is generated or a published test key.
+             configChanges keeps the playground's state when the device rotates. -->
         <activity
             android:name=".app.MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>

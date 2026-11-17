@@ -375,7 +375,7 @@ fun platformKeyChecks(env: PlatformKeyRun): List<Check> = buildList {
     }
 
     check("platform-key/keystore/ecdh-es-a256kw-p-256") {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) skip("API 31") // ECDH-ES needs API 31
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) skip("needs API 31") // ECDH-ES needs API 31
         env.withAlias("keystore-ecdh-p-256") { alias ->
             val key = createKeystoreKey(alias, "ECDH-ES")
             expectRoundTrip(key) { keystoreDecrypt(it, key, listOf(JWE_ALG), listOf(JWE_ENC)).plaintext }
@@ -411,7 +411,7 @@ fun platformKeyChecks(env: PlatformKeyRun): List<Check> = buildList {
 
     check("platform-key/strongbox/ecdh-es-a256kw-p-256") {
         if (!env.hasStrongBox) skip("no StrongBox on this device")
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) skip("API 31") // ECDH-ES needs API 31
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) skip("needs API 31") // ECDH-ES needs API 31
         env.withAlias("strongbox-ecdh-p-256") { alias ->
             val key = createStrongBoxKey(alias, "ECDH-ES", strongBoxRequired)
             expectEq(strongBoxKeyLevel(key), AndroidKeystoreKey.SecurityLevel.StrongBox, "securityLevel")
@@ -421,6 +421,8 @@ fun platformKeyChecks(env: PlatformKeyRun): List<Check> = buildList {
 
     check("platform-key/strongbox/required-when-absent") {
         if (env.hasStrongBox) skip("StrongBox present")
+        // StrongBox needs API 28: below it the library refuses `Required` with UnsupportedAlgorithm.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) skip("needs API 28")
         env.withAlias("strongbox-required-when-absent") { alias ->
             expectCode(rejectionCode { createStrongBoxKey(alias, "ES256", strongBoxRequired) }, "PlatformKeyFailed")
             expectCode(rejectionCode { openStrongBoxKey(alias, "ES256") }, "KeyNotFound")
