@@ -46,6 +46,8 @@ Every tap writes its steps to the Log tab and the browser console, and the route
 
 ## The playground
 
+It follows the repository's [PLAYGROUND.md](../PLAYGROUND.md): its Browser column and [web notes](../PLAYGROUND.md#web-notes) say what differs in a browser.
+
 | Tab | What it does |
 |---|---|
 | **Checks** | The 8 checks, and the demo walk. The page opens on this tab. |
@@ -151,7 +153,7 @@ Each answers `{ "ok": true, …, "steps": [...] }` or `{ "ok": false, "code": "I
 
 ## The checks
 
-In order. `npm run verify` and **Run the checks** run them.
+In order. `npm run verify` and **Run the checks** run them. [CATALOG.md](../CATALOG.md#nextjs-checks) specifies them, with the output format and the pass rule.
 
 | Check | What it shows |
 |---|---|

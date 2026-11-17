@@ -29,26 +29,26 @@ Every polyjose call runs off the main thread: a key with user authentication sho
 
 ### Signing (JWS compact and JWT)
 
-| Algorithm | Software | iOS Keychain | Secure Enclave | Android Keystore (TEE) | StrongBox | Refusal when ✗ |
-|---|---|---|---|---|---|---|
-| HS256, HS384, HS512 | ✓ | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
-| ES256 | ✓ | ✓ | ✓ | 23 | 28 | — |
-| ES384, ES512 | ✓ | ✓ | ✗ | 23 | ✗ | `UnsupportedAlgorithm` |
-| RS256, PS256 | ✓ (A.2 key) | ✓ 2048/3072/4096 | ✗ | 23, 2048/3072/4096 | 28, 2048 only | `UnsupportedAlgorithm` |
-| RS384, RS512, PS384, PS512 | ✓ (A.2 key) | ✓ 2048/3072/4096 | ✗ | 23, 2048/3072/4096 | ✗ | `UnsupportedAlgorithm` |
-| EdDSA (Ed25519) | ✓ | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
+| Algorithm | Software | [Browser](#web-notes) | iOS Keychain | Secure Enclave | Android Keystore (TEE) | StrongBox | Refusal when ✗ |
+|---|---|---|---|---|---|---|---|
+| HS256, HS384, HS512 | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
+| ES256 | ✓ | ✓ | ✓ | ✓ | 23 | 28 | — |
+| ES384, ES512 | ✓ | ✓ | ✓ | ✗ | 23 | ✗ | `UnsupportedAlgorithm` |
+| RS256, PS256 | ✓ (A.2 key) | ✓ (A.2 key) | ✓ 2048/3072/4096 | ✗ | 23, 2048/3072/4096 | 28, 2048 only | `UnsupportedAlgorithm` |
+| RS384, RS512, PS384, PS512 | ✓ (A.2 key) | ✓ (A.2 key) | ✓ 2048/3072/4096 | ✗ | 23, 2048/3072/4096 | ✗ | `UnsupportedAlgorithm` |
+| EdDSA (Ed25519) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
 
 ### Decryption (JWE compact)
 
 Encryption is always done in software, to the key's public JWK. The store column is the key that decrypts.
 
-| `alg` | Software | iOS Keychain | Secure Enclave | Android Keystore (TEE) | StrongBox | Refusal when ✗ |
-|---|---|---|---|---|---|---|
-| ECDH-ES, ECDH-ES+A128KW, +A192KW, +A256KW on P-256 | ✓ | ✓ | ✓ | 31 | 31 | `UnsupportedAlgorithm` (below 31 too) |
-| the same on P-384 and P-521 | ✓ | ✓ | ✗ | 31 | ✗ | `UnsupportedAlgorithm` |
-| the same on X25519 | ✓ | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
-| RSA-OAEP-256 | ✓ (A.2 key) | ✓ 2048/3072/4096 | ✗ | 34 (keys created on 34 or later) | 34, 2048 only, *not verified on a StrongBox device* | `UnsupportedAlgorithm` |
-| A128KW, A192KW, A256KW, A128GCMKW, A192GCMKW, A256GCMKW, `dir` | ✓ (oct key) | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
+| `alg` | Software | [Browser](#web-notes) | iOS Keychain | Secure Enclave | Android Keystore (TEE) | StrongBox | Refusal when ✗ |
+|---|---|---|---|---|---|---|---|
+| ECDH-ES, ECDH-ES+A128KW, +A192KW, +A256KW on P-256 | ✓ | ✓ | ✓ | ✓ | 31 | 31 | `UnsupportedAlgorithm` (below 31 too) |
+| the same on P-384 and P-521 | ✓ | ✓ | ✓ | ✗ | 31 | ✗ | `UnsupportedAlgorithm` |
+| the same on X25519 | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
+| RSA-OAEP-256 | ✓ (A.2 key) | ✓ (A.2 key) | ✓ 2048/3072/4096 | ✗ | 34 (keys created on 34 or later) | 34, 2048 only, *not verified on a StrongBox device* | `UnsupportedAlgorithm` |
+| A128KW, A192KW, A256KW, A128GCMKW, A192GCMKW, A256GCMKW, `dir` | ✓ (oct key) | ✓ (oct key) | ✗ | ✗ | ✗ | ✗ | `UnsupportedAlgorithm` |
 
 - **`enc`:** A128GCM, A192GCM, A256GCM, A128CBC-HS256, A192CBC-HS384 and A256CBC-HS512, with every store. Content encryption is always polyjose's, in software.
 - **Below an API level** the cell is ✗ with `reason.api-level`, and Run anyway gives `UnsupportedAlgorithm`.
@@ -72,6 +72,38 @@ Encryption is always done in software, to the key's public JWK. The store column
   - The playground offers keys with user authentication from API 28, because it shows the framework [`BiometricPrompt`](https://developer.android.com/reference/android/hardware/biometrics/BiometricPrompt). Below 28 they are ✗ with `reason.api-level`.
   - A device with no secure lock screen: every user-authentication option is ✗ with `reason.no-lock-screen`; Run anyway shows the code the library returns (expected: `PlatformKeyFailed`).
 - **Where a key lives** is `AndroidKeystoreKey.securityLevel`, read from [`KeyInfo`](https://developer.android.com/reference/android/security/keystore/KeyInfo): `StrongBox`, `TrustedEnvironment`, `Software` or `Unknown` from API 31. Below 31, or when the platform reports an unnamed secure level, it is `SecureHardware`: the platform doesn't say whether the key is in the TEE or StrongBox.
+
+### Web notes
+
+The **Browser** column is the Next.js app's playground (`nextjs/`): `@polyjose/wasm` 0.4.0 in the page, with software keys only, and `@polyjose/node` 0.4.0 in the route handlers for the Server tab. Its matrix is `nextjs/lib/matrix.ts`, and its explanation texts are `nextjs/lib/explanations.ts`.
+
+- **Software keys live in page memory, and any script on the page can read them** (`note.browser`, shown at the top of the page and on the Keys tab). The result card says "Key lives in: page memory (software, readable by any script on this page)". **Delete** drops the page's reference to a key; JavaScript can't wipe the memory, and closing the tab ends it.
+- **Key stores.** The Sign, Encrypt and Keys tabs show two more store rows, **Platform key store** (`store.platform`) and **WebCrypto non-extractable key** (`store.webcrypto`), both disabled with `reason.not-in-polyjose`, "not in polyjose 0.4.0". They have no call to make, so there is no **Run anyway**, and the demo walk doesn't count them.
+- **RSA** is the RFC 7515 Appendix A.2 test key (`key.test-rsa`) at 2048 bits; there is no RSA size option. There are no StrongBox or user-authentication options.
+- **Algorithms beyond the tables**, all in software, which `@polyjose/wasm` 0.4.0 offers:
+  - signing: ES256K (`alg.ES256K`, `crv.secp256k1`; RFC 8812 §3.2), and `Ed25519`, the fully specified name of EdDSA with an Ed25519 key (`alg.Ed25519`; RFC 9864 §2.2);
+  - key management: PBES2-HS256+A128KW, PBES2-HS384+A192KW and PBES2-HS512+A256KW (`alg.PBES2-*`; RFC 7518 §4.8). The password is 16 random bytes made in the page, shown like a shared key, by its length only (`key.password`).
+  - polyjose 0.4.0 refuses RSA-OAEP and RSA1_5 with `UnsupportedAlgorithm`, so they aren't rows.
+- **Failure actions.**
+  - Deleted key: disabled with `reason.software-not-stored`, as for every software key.
+  - Wrong key and other algorithm allowed: disabled for RS\*, PS\* and RSA-OAEP-256 (`reason.rsa-wrong-key`, `reason.rsa-other-alg`), because the only software RSA private key is the A.2 test key and polyjose 0.4.0 can't generate another.
+  - Other algorithm allowed: disabled for EdDSA and `Ed25519` (`reason.eddsa-other-alg`), because an Ed25519 key has no other signing algorithm.
+  - Expired always signs a JWT, whatever the operation (`reason.expired-is-jwt`).
+  - A disabled action isn't a demo walk step.
+- **Decrypt-side key failures are `DecryptionFailed`.** A wrong key and a changed JWE both give `DecryptionFailed`, never a key or key-store code (`note.decrypt-failures`, on the Encrypt and Server tabs; RFC 7516 §11.5). polyjose 0.4.0 refuses a decryption key whose `kid` differs from the header's `kid` with `KeyAlgorithmMismatch` before it decrypts, so the Encrypt tab's JWEs carry no `kid`: each goes to one known key. The Server tab's JWEs keep the recipient's `kid`.
+- **Tabs.**
+  - **Checks** runs the eight [Next.js checks](CATALOG.md#nextjs-checks), not 1–34, and has a **Run the demo walk** button.
+  - **Server** (`tab.server`), between Encrypt and Keys: the four crossings (`browser-signs`, `server-issues`, `browser-encrypts`, `server-encrypts`) and the server's four refusals, one button each. The refusals are `failure.server.alg-not-allowed` (`AlgorithmNotAllowed`), `failure.server.tampered` (`InvalidSignature`), `failure.server.none` (`AlgorithmNotAllowed`) and `failure.server.jwe-tampered` (`DecryptionFailed`).
+  - **Keys** has a "This browser" card instead of "This device": the polyjose version, the browser, whether the page is a secure context, and whether WebCrypto is present (polyjose 0.4.0 doesn't use `CryptoKey` objects). Keys are named by `kid`, not by tag or alias: an asymmetric key's RFC 7638 thumbprint, or `secret-<n>` for a shared key. The [key names](#key-names) don't apply, and there is no **Open again**, because nothing is stored.
+- **Calls run on the page's thread.** No call shows a prompt, so none blocks waiting for one.
+- **Explanation ids the web adds**, besides the ids above: `error.BadRequest`, `error.BodyTooLarge`, `error.PrivateKeySent`, `error.NothingToVerify`, `error.NothingToDecrypt` and `error.BadResponse`. These are the app's own codes, not polyjose codes. The web keeps only the shared ids that apply in a browser, so it has no ids for the platform stores, their options or their refusal reasons.
+- **Log.** The format and the secrets rule are as above.
+  - Every line also goes to `console.log` in the page. The route handlers write their lines to the server's stdout and return them in the answer (`steps`), and the Log tab shows them under the tap: `LOG <tap>.s<n> …`. The server logs `LOG 0.1 server-keys source=… signing=<kid> decryption=<kid>` once, when it makes or reads its keys.
+  - `device` has `polyjose`, `browser`, `secure-context`, `webcrypto`, `platform-key-store=false` and `non-extractable-keys=false`.
+  - `input` may also carry `crossing`, `kid` and `count`; on the server it may carry `allowedAlgs` and `allowedEnc`, comma-separated. `op` adds `crossing` and `key-show`, and `failure` adds `server.alg-not-allowed`, `server.tampered`, `server.none` and `server.jwe-tampered`.
+  - `key-software` may also carry `crv` and `enc`. `key-delete` is a software key the page dropped: `kid`, `alg`. `note` has `shared=true` when a shared key is shown, because a shared key has no public JWK. `error` also carries `call` (the step that failed) in the page, and `route` on the server. The server's `verify` and `decrypt` lines carry no `ms`, because its `call` lines carry the times, and its `verify` line carries `bytes` (the payload length) in place of `kid`.
+  - New events: `request` (`method` and `route` in the page, `route` on the server), `response` (`status`, `ok`, `ms`), `jwks` (`keys`, the number of keys, then the JWK Set through the public-only gate), and `secrets` (`lines`, `matches`), the demo walk's last step.
+- **Demo walk.** `npm run verify` opens `/?verify=1&demo=1` in headless Chrome and prints `POLYJOSE-VERIFY: 8/8 PASS`, then `POLYJOSE-PLAYGROUND: 330/330 OK` ([CATALOG.md](CATALOG.md#nextjs-checks)). The walk covers every enabled cell and every enabled failure action of the Browser column and the rows above, then Verify and Decrypt as second taps, the Keys tab, the Server tab's eight buttons and the secrets check over its own log. A disabled cell has no call, so it isn't a step. The secrets grep also fails the run on an unhandled `PolyjoseError` in the browser console or the server output.
 
 ## Failure actions
 

@@ -1,6 +1,6 @@
 # Check catalog
 
-Every app in this repository runs the same checks, in the same order, and prints the same lines; the NestJS service runs its own [service checks](#nestjs-service-checks). This file is the single list. An app is correct when its run ends in `POLYJOSE-VERIFY: R/R PASS`, where R is the number of checks below that ran on it, and every other check of its platform printed a `SKIP` line.
+Every app in this repository runs the same checks, in the same order, and prints the same lines; the NestJS service runs its own [service checks](#nestjs-service-checks), and the Next.js app its own [browser and server checks](#nextjs-checks). This file is the single list. An app is correct when its run ends in `POLYJOSE-VERIFY: R/R PASS`, where R is the number of checks below that ran on it, and every other check of its platform printed a `SKIP` line.
 
 polyjose **0.4.0**. The count N per platform:
 
@@ -9,11 +9,12 @@ polyjose **0.4.0**. The count N per platform:
 | Node.js | 34 | 1–34 |
 | Node.js, TypeScript (`node-ts/`) | 34 | 1–34, the same ids in the same order as Node.js |
 | NestJS (`nestjs/`) | 10 | the ten [NestJS service checks](#nestjs-service-checks), not 1–34 |
+| Next.js (`nextjs/`) | 8 | the eight [Next.js checks](#nextjs-checks), not 1–34 |
 | Web | 34 | 1–34 |
 | iOS | 44 | 1–34, then the ten [iOS platform-key checks](#ios-applekey) as 35–44 |
 | Android | 44 | 1–34, then the ten [Android platform-key checks](#android-androidkeystorekey) as 35–44 |
 
-Checks 1–34 run on every platform except NestJS. The platform-key checks are specified below and arrive in the iOS and Android apps with their per-store examples; until then those two apps run checks 1–34 and their `run.sh` holds N = 34.
+Checks 1–34 run on every platform except NestJS and Next.js. The platform-key checks are specified below and arrive in the iOS and Android apps with their per-store examples; until then those two apps run checks 1–34 and their `run.sh` holds N = 34.
 
 ## Output and pass rule
 
@@ -38,9 +39,9 @@ POLYJOSE-VERIFY: 41/42 PASS (2 skipped)
   - `<what>: expected <a>, got <b>`, only for public values (algorithm names, `kid`, indexes, the RFC 7638 thumbprint, HTTP status codes and headers);
   - `<what> differs`, for anything else (payloads, claims, key members).
 - **The final line** is `POLYJOSE-VERIFY: P/R PASS`. P is the number of PASS lines and R the number of checks that ran (PASS plus FAIL; skips excluded). ` (S skipped)` is appended only when S > 0.
-- **A run exits 0 only when P = R and R + S = N**, where P and R are read from the final line, S is the number of `SKIP` lines, and N is the platform's count in the table above. So every check that ran passed, and every check of the platform either ran or was skipped: a skip can't hide a missing check, and a run that prints fewer than N check lines fails. The final line must also agree with the lines above it (P `PASS` lines, R − P `FAIL` lines, S `SKIP` lines). Anything else, including a timeout, exits non-zero. On a timeout it prints `POLYJOSE-VERIFY: 0/<N> PASS (timeout)`. The run is `npm run verify` for Node.js, Node.js TypeScript and NestJS, and `run.sh` for the other apps; each holds N once (`EXPECTED_CHECKS` in `node/run.mjs`, `node-ts/run.ts` and `nestjs/src/verify.ts`, `expected_checks` in each `run.sh`), and a change that adds checks raises it.
-- **A skip is allowed only** when the device lacks the hardware a check needs (Secure Enclave, StrongBox) or the OS level its platform key store needs. A skip never counts as a pass. Checks 1–34 and the NestJS service checks never skip; each platform-key check below states its one skip condition.
-- **Where the lines go.** Node.js, Node.js TypeScript and NestJS: stdout. Web: the page (`<pre id="result">`) and the browser console. iOS: stdout (`print`). Android: logcat, tag `POLYJOSE`. Each app with a screen also shows them there.
+- **A run exits 0 only when P = R and R + S = N**, where P and R are read from the final line, S is the number of `SKIP` lines, and N is the platform's count in the table above. So every check that ran passed, and every check of the platform either ran or was skipped: a skip can't hide a missing check, and a run that prints fewer than N check lines fails. The final line must also agree with the lines above it (P `PASS` lines, R − P `FAIL` lines, S `SKIP` lines). Anything else, including a timeout, exits non-zero. On a timeout it prints `POLYJOSE-VERIFY: 0/<N> PASS (timeout)`. The run is `npm run verify` for Node.js, Node.js TypeScript, NestJS and Next.js, and `run.sh` for the other apps; each holds N once (`EXPECTED_CHECKS` in `node/run.mjs`, `node-ts/run.ts`, `nestjs/src/verify.ts` and `nextjs/run.mjs`, `expected_checks` in each `run.sh`), and a change that adds checks raises it.
+- **A skip is allowed only** when the device lacks the hardware a check needs (Secure Enclave, StrongBox) or the OS level its platform key store needs. A skip never counts as a pass. Checks 1–34, the NestJS service checks and the Next.js checks never skip; each platform-key check below states its one skip condition.
+- **Where the lines go.** Node.js, Node.js TypeScript and NestJS: stdout. Web: the page (`<pre id="result">`) and the browser console. Next.js: the page (`<pre id="result">`) and the browser console, and `npm run verify` prints them on stdout. iOS: stdout (`print`). Android: logcat, tag `POLYJOSE`. Each app with a screen also shows them there.
 
 ## Developer tasks
 
@@ -58,8 +59,8 @@ Each app has one example file per developer task, which you can read and copy on
 
 - The fixed keys live in `test-keys` (`TestKeys`).
 - The last two tasks are not in the apps yet; their headings exist already, and say so. The platform key store examples arrive with the [platform-key checks](#platform-key-checks).
-- `node-ts/` has the same files as `node/`, in TypeScript (`.ts`). The NestJS service is organised by NestJS module instead; its README says what is where.
-- [PLAYGROUND.md](PLAYGROUND.md) describes the interactive playground of the iOS and Android apps, which calls the same example files.
+- `node-ts/` has the same files as `node/`, in TypeScript (`.ts`). The NestJS service is organised by NestJS module instead; its README says what is where. The Next.js app has no task files: it shows tokens crossing between the browser and its route handlers, and its README says what runs where.
+- [PLAYGROUND.md](PLAYGROUND.md) describes the interactive playground of the iOS and Android apps, which calls the same example files, and of the Next.js app (its Browser column and web notes).
 
 ## Fixed keys
 
@@ -204,6 +205,24 @@ The NestJS app (`nestjs/`) is a service, not a set of task files, so it runs its
 
 - **Rejected tokens (6–10).** Each answer is 401 with `WWW-Authenticate: Bearer error="invalid_token"` and the body `{"error":"invalid_token"}` (RFC 6750 §3.1). The expected code is read from the one `token rejected code=<Code>` line the service logged during the request; the client never sees it (RFC 8725 §3.1).
 - **Secrets scan.** After the checks, `npm run verify` sends one request that is not a check, `GET /token?grant_type=client_credentials&client_id=demo-client&client_secret=<the test secret>` (a route that doesn't exist). It then scans the whole server log, every response body and both printed forms of `KeyService` for a private JWK member (`"d":`, `"k":` and the RSA ones), for the signing key's `d` value and for the client secret, and the log for every issued access token. It prints only counts, in one `# secrets scan: ...` line between the last check line and the final line, which readers ignore like an information line. On top of the pass rule above, the run exits 0 only when the scan is clean.
+
+## Next.js checks
+
+The Next.js app (`nextjs/`) runs its own eight checks instead of 1–34. Each one sends a token across between the page (`@polyjose/wasm`) and the app's route handlers (`@polyjose/node`), or reads the server's JWK Set. `npm run verify` builds and starts the app on a free port of 127.0.0.1 and opens `/?verify=1&demo=1` in headless Chrome. The server's two keys are P-256 keys generated when it starts (or read from `POLYJOSE_SERVER_JWKS`): an ES256 signing key and an `ECDH-ES+A256KW` decryption key, each with a `kid`. The browser's keys are generated in the page. Every token carries one of the app's fixed demo messages. Its JWTs use the issuer `https://server.polyjose.example`, the audience `https://browser.polyjose.example` and the subject `demo-user`, and last 300 s. Every JWE uses `ECDH-ES+A256KW` with `A256GCM`.
+
+| # | Id | What the check does | Expect | RFC |
+|---|---|---|---|---|
+| 1 | `nextjs/browser-signs/server-verifies-es256` | The browser signs a compact JWS with a generated ES256 key; `POST /api/verify` with the token and the public JWK; the server runs `jwsVerifyCompact` with `allowedAlgs: ["ES256"]` | the verified `alg` is ES256; the payload equals the browser's message | RFC 7515 §5.1, §5.2; RFC 7518 §3.4 |
+| 2 | `nextjs/server-issues-jwt/browser-verifies-with-jwks` | `POST /api/issue`: the server signs a JWT with its ES256 key; the browser fetches `GET /api/jwks` and runs `jwtVerifyWithJwks` with `allowedAlgs: ["ES256"]` and the app's issuer and audience | the verified `alg` is ES256; `iss`, `aud` and `sub` are the app's; the `kid` is present | RFC 7519 §7.2, §4.1.1, §4.1.3; RFC 7517 §5; RFC 8725 §3.1, §3.9 |
+| 3 | `nextjs/browser-encrypts/server-decrypts-p-256` | The browser selects the server's `ECDH-ES+A256KW` key from `GET /api/jwks` and runs `jweEncryptCompact` to it; `POST /api/decrypt`; the server runs `jweDecryptCompact` with `allowedAlgs: ["ECDH-ES+A256KW"]`, `allowedEnc: ["A256GCM"]` | the plaintext equals the browser's message | RFC 7516 §5.1, §5.2; RFC 7518 §4.6, §5.3 |
+| 4 | `nextjs/server-encrypts/browser-decrypts-p-256` | The browser generates an `ECDH-ES+A256KW` P-256 key; `POST /api/encrypt` with its public JWK; the browser decrypts the answer with the same allow-lists | the plaintext equals the server's message | RFC 7516 §5.1, §5.2; RFC 7518 §4.6, §5.3 |
+| 5 | `nextjs/server/rejects-alg-not-allowed` | as 1, signed ES384 by a P-384 key | the server answers `AlgorithmNotAllowed` | RFC 8725 §3.1 |
+| 6 | `nextjs/server/rejects-tampered` | as 1, with one character in the middle of the payload part changed | the server answers `InvalidSignature` | RFC 7515 §5.2 step 8 |
+| 7 | `nextjs/server/rejects-none` | as 1, with the token replaced by an Unsecured JWS, `base64url({"alg":"none"}) . base64url(payload) .` | the server answers `AlgorithmNotAllowed` | RFC 8725 §3.2; RFC 7518 §3.6; RFC 7515 Appendix A.5 |
+| 8 | `nextjs/jwks/public-only` | `GET /api/jwks` | two keys, each with a `kid`, one with `alg: ES256` and one with `alg: ECDH-ES+A256KW`; no key has `d`, `p`, `q`, `dp`, `dq`, `qi`, `oth` or `k` | RFC 7517 §5; RFC 7518 §6.2.2 |
+
+- **Refusals (5–7).** The route answers `{"ok": false, "code": "<Code>"}`, and the check passes only when that code came from the server, not from a step in the browser.
+- **The demo walk.** After the `POLYJOSE-VERIFY` line, the same page runs the playground's [demo walk](PLAYGROUND.md#demo-walk) and prints its own result line, `POLYJOSE-PLAYGROUND: N/M OK`, which readers of the check output ignore. Then `npm run verify` greps the browser console and the server output for a private JWK member (`"d":`, `"k":` and the RSA ones) and for an unhandled `PolyjoseError`, and prints only counts. On top of the pass rule above, the run exits 0 only when N = M = 330 and the grep finds nothing. On a timeout it prints `POLYJOSE-PLAYGROUND: 0/330 OK (timeout)` as well.
 
 ## Adding checks
 
