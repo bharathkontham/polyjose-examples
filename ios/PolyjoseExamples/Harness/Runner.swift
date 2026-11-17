@@ -1,7 +1,7 @@
 // Runs the catalog off the main thread, prints one line per check to stdout and publishes the
 // same lines to the screen:
 //
-//   # polyjose 0.2.0 through the Polyjose Swift package, iOS 27.2 (Simulator)
+//   # polyjose 0.4.0 through the Polyjose Swift package, iOS 27.2 (Simulator)
 //   PASS jws/sign-verify/es256
 //   FAIL jwt/verify/rejects-expired: expected TokenExpired, got InvalidClaim
 //   POLYJOSE-VERIFY: 33/34 PASS

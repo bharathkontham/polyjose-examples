@@ -1,6 +1,6 @@
 # polyjose example app for iOS
 
-`polyjose-examples-ios` is a SwiftUI app (iOS 16 or later) that uses the [`polyjose`](https://github.com/bharathkontham/polyjose) Swift package, version 0.2.0, product `Polyjose`, its only dependency. Each file in [`PolyjoseExamples/Examples/`](PolyjoseExamples/Examples/) answers one "How do I…?" question, imports `Polyjose` directly, and can be copied into your app on its own. [`PolyjoseExamples/Harness/`](PolyjoseExamples/Harness/) runs every check of the [catalog](../CATALOG.md) through those files when the app starts, prints the lines to stdout and shows them on screen.
+`polyjose-examples-ios` is a SwiftUI app (iOS 16 or later) that uses the [`polyjose`](https://github.com/bharathkontham/polyjose) Swift package, version 0.4.0, product `Polyjose`, its only dependency. Each file in [`PolyjoseExamples/Examples/`](PolyjoseExamples/Examples/) answers one "How do I…?" question, imports `Polyjose` directly, and can be copied into your app on its own. [`PolyjoseExamples/Harness/`](PolyjoseExamples/Harness/) runs every check of the [catalog](../CATALOG.md) through those files when the app starts, prints the lines to stdout and shows them on screen.
 
 Needs macOS with Xcode and an iOS Simulator runtime. `DEVELOPER_DIR` selects the Xcode, as for any Xcode command-line tool.
 
@@ -16,7 +16,7 @@ Needs macOS with Xcode and an iOS Simulator runtime. `DEVELOPER_DIR` selects the
 POLYJOSE-VERIFY: 34/34 PASS
 ```
 
-It exits 0 only when every check passed. The output format is described in [CATALOG.md](../CATALOG.md#output-and-pass-rule). The app exits by itself after the run when it was launched with `-autorun`.
+It exits 0 only when every check that ran passed and every check of the catalog either ran or was skipped. The output format and the pass rule are in [CATALOG.md](../CATALOG.md#output-and-pass-rule). The app exits by itself after the run when it was launched with `-autorun`.
 
 - **The Simulator.** `run.sh` uses a device named `polyjose-examples` on the newest installed iOS runtime, and creates it the first time. When the device is not running, `run.sh` boots it and shuts it down at the end; a device that was already running stays running. `POLYJOSE_SIMULATOR=<name or UDID>` picks another device, and `POLYJOSE_SIM_RUNTIME=<runtime identifier>` the runtime of a new one (`xcrun simctl list runtimes` lists them). To remove the device: `xcrun simctl delete polyjose-examples`.
 - **The timeout.** From the boot to the final line, `run.sh` waits at most `POLYJOSE_TIMEOUT` seconds (default 300). Then it prints `POLYJOSE-VERIFY: 0/34 PASS (timeout)`, stops the app and exits 1.
@@ -38,7 +38,7 @@ Open `PolyjoseExamples.xcodeproj`, pick an iPhone Simulator and run (⌘R). The 
 2. Open `PolyjoseExamples.xcodeproj`, connect the iPhone (with Developer Mode on: Settings > Privacy & Security), pick it as the run destination and run (⌘R).
 3. The app runs every check at launch. Read the result on screen: the first line names the polyjose version and the iOS version, and the list ends with `POLYJOSE-VERIFY: 34/34 PASS`. In Xcode's console the same lines appear.
 
-The 0.2.0 checks use only polyjose's own pure-Rust cryptography, so a run on an iPhone shows the same 34 checks as a run on the Simulator; the difference is the CPU and the OS build they ran on.
+These 34 checks use only polyjose's own pure-Rust cryptography, so a run on an iPhone shows the same 34 checks as a run on the Simulator; the difference is the CPU and the OS build they ran on.
 
 ### Against a local polyjose checkout
 
@@ -82,21 +82,21 @@ Checks: `jwk/generate/ec-p-256`, `jwk/thumbprint/rfc7638`, `jwk/pem/round-trip`,
 
 ### Decode a token before verifying it
 
-Not in polyjose 0.2.0. This example arrives with the polyjose release that adds unverified decoding.
+Not in this app yet. polyjose 0.4.0 has the unverified decode functions; this example arrives in a later update of this repository.
 
 ### Use a platform key store
 
-Not in polyjose 0.2.0. This example, keys kept in the iOS Keychain or the Secure Enclave, arrives with the polyjose release that adds platform keys.
+Not in this app yet. polyjose 0.4.0 has `AppleKey`, for keys kept in the iOS Keychain or the Secure Enclave; this example and its ten checks (listed in [CATALOG.md](../CATALOG.md#platform-key-checks)) arrive in a later update of this repository. [PLAYGROUND.md](../PLAYGROUND.md) describes the playground that will try each key store by hand.
 
 ## Test keys
 
-[`Examples/TestKeys.swift`](PolyjoseExamples/Examples/TestKeys.swift) holds two keys copied from the RFCs: the RFC 7515 Appendix A.2 RSA key (polyjose 0.2.0 cannot generate RSA keys) and the RFC 7638 §3.1 key. They are published: **test keys, never use them in production.** Every other key is generated at run time.
+[`Examples/TestKeys.swift`](PolyjoseExamples/Examples/TestKeys.swift) holds two keys copied from the RFCs: the RFC 7515 Appendix A.2 RSA key (polyjose 0.4.0 cannot generate RSA keys) and the RFC 7638 §3.1 key. They are published: **test keys, never use them in production.** Every other key is generated at run time.
 
 ## Files
 
 | Path | What it is |
 |---|---|
-| `PolyjoseExamples.xcodeproj` | The Xcode project: one app target, `PolyjoseExamples`, and the Swift package requirement (`https://github.com/bharathkontham/polyjose`, exactly 0.2.0) |
+| `PolyjoseExamples.xcodeproj` | The Xcode project: one app target, `PolyjoseExamples`, and the Swift package requirement (`https://github.com/bharathkontham/polyjose`, exactly 0.4.0) |
 | `Config/App.xcconfig` | The target's build settings: bundle id `dev.polyjose.examples`, iOS 16, Swift 6; includes `Config/Local.xcconfig` when it exists |
 | `PolyjoseExamples/Examples/` | One file per developer task, and the test keys |
 | `PolyjoseExamples/Harness/` | The checks in catalog order (`Catalog.swift`), their expectations (`Check.swift`), the runner (`Runner.swift`) and the screen (`ContentView.swift`) |

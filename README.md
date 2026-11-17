@@ -9,7 +9,7 @@ Complete example apps for [polyjose](https://github.com/bharathkontham/polyjose)
 | [`ios/`](ios/README.md) | `polyjose-examples-ios`, a SwiftUI app | the `polyjose` Swift package |
 | [`android/`](android/README.md) | `polyjose-examples-android`, a Kotlin app | [`dev.polyjose:polyjose`](https://central.sonatype.com/artifact/dev.polyjose/polyjose) |
 
-Each app is organised by developer task: one example file per task, which you can read and copy on its own. Each app also runs every example as a check and reports the result, so the examples are known to work with the release they pin (polyjose **0.2.0**). The checks are the same on every platform; [CATALOG.md](CATALOG.md) lists them.
+Each app is organised by developer task: one example file per task, which you can read and copy on its own. Each app also runs every example as a check and reports the result, so the examples are known to work with the release they pin (polyjose **0.4.0**). The checks are the same on every platform, plus platform-key checks on iOS and Android; [CATALOG.md](CATALOG.md) lists them.
 
 ## How do I…?
 
@@ -21,9 +21,10 @@ Each app is organised by developer task: one example file per task, which you ca
 | Encrypt and decrypt (JWE) | [node](node/README.md#encrypt-and-decrypt-jwe) | [web](web/README.md#encrypt-and-decrypt-jwe) | [ios](ios/README.md#encrypt-and-decrypt-jwe) | [android](android/README.md#encrypt-and-decrypt-jwe) |
 | Create keys and use a JWK Set | [node](node/README.md#create-keys-and-use-a-jwk-set) | [web](web/README.md#create-keys-and-use-a-jwk-set) | [ios](ios/README.md#create-keys-and-use-a-jwk-set) | [android](android/README.md#create-keys-and-use-a-jwk-set) |
 | Decode a token before verifying it | [node](node/README.md#decode-a-token-before-verifying-it) | [web](web/README.md#decode-a-token-before-verifying-it) | [ios](ios/README.md#decode-a-token-before-verifying-it) | [android](android/README.md#decode-a-token-before-verifying-it) |
-| Use a platform key store | — | — | [ios](ios/README.md#use-a-platform-key-store) | [android](android/README.md#use-a-platform-key-store) |
+| Use a platform key store ([checks](CATALOG.md#platform-key-checks)) | — | — | [ios](ios/README.md#use-a-platform-key-store) | [android](android/README.md#use-a-platform-key-store) |
+| Try every algorithm and key store in the playground | — | — | [PLAYGROUND.md](PLAYGROUND.md) | [PLAYGROUND.md](PLAYGROUND.md) |
 
-The last two tasks need a polyjose release after 0.2.0; their sections say when they arrive.
+The decode and platform key store examples, and the playground, are not in the apps yet; their sections say so. [CATALOG.md](CATALOG.md#platform-key-checks) lists the platform-key checks, and [PLAYGROUND.md](PLAYGROUND.md) describes the playground.
 
 Every example passes an explicit algorithm allow-list to verify and decrypt (RFC 8725 §3.1), never accepts `alg: none`, and never logs key material. Keys are generated at run time, except two RSA keys copied from the RFCs, which are labelled **test keys, never use in production**.
 
@@ -35,7 +36,7 @@ Each app has one command that builds it, runs every check without a user interfa
 POLYJOSE-VERIFY: 34/34 PASS
 ```
 
-It exits 0 only when every check of the catalog ran and passed. The format and the rules are in [CATALOG.md](CATALOG.md#output-and-pass-rule).
+It exits 0 only when every check that ran passed and every check of the platform either ran or was skipped (a skip needs hardware or an OS level the device lacks). The format and the rules are in [CATALOG.md](CATALOG.md#output-and-pass-rule).
 
 | App | Needs | Run |
 |---|---|---|

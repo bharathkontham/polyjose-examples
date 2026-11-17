@@ -38,7 +38,7 @@ class SigningKeyPair(val signKey: String, val verifyKey: String)
 /**
  * A key pair for [alg]:
  * - HS256: one random secret for both (RFC 7518 §3.2: at least as long as the hash).
- * - RS256, PS256: polyjose 0.2.0 does not generate RSA keys, so this uses the RFC 7515 A.2
+ * - RS256, PS256: polyjose 0.4.0 does not generate RSA keys, so this uses the RFC 7515 A.2
  *   test key. In your app, load your own key, for example with `jwkFromPem`.
  * - ES256/384/512, EdDSA: `jwkGenerateForAlg` makes a key on the right curve, with `alg` set.
  */
