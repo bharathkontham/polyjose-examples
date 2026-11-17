@@ -67,6 +67,12 @@ class Playground(val activity: Activity, private val host: PromptHost) {
 
     fun device(): DeviceInfo = DeviceInfo.read(activity)
 
+    /** From the activity's `onDestroy`: the session drops what points at this activity, and only that. */
+    fun detach() {
+        if (Session.activity === activity) Session.activity = null
+        log.detach()
+    }
+
     /** Runs [work] on the executor and [done] with its value on the main thread. */
     fun <T> background(work: () -> T, done: (T) -> Unit) {
         Session.executor.execute {

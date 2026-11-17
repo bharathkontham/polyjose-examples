@@ -19,7 +19,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 
 /** The members of a private or symmetric JWK (RFC 7518 §6.2.2, §6.3.2, §6.4.1; RFC 8037 §2). */
-private val SECRET_MEMBERS = setOf("d", "p", "q", "dp", "dq", "qi", "oth", "k")
+internal val SECRET_MEMBERS = setOf("d", "p", "q", "dp", "dq", "qi", "oth", "k")
 
 /** JSON text that has passed [publicOnly]: the only JSON a log line, or the screen, takes. */
 class PublicJson private constructor(val text: String) {
@@ -135,6 +135,23 @@ class PlaygroundLog(private val mirror: (String) -> Unit = { Log.i(TAG, it) }) {
         return sb.toString()
     }
 
+    /**
+     * The whole log, oldest tap first, with each `LOG <tap>.<step> + ` continuation joined back to
+     * its line: the text the demo walk's secrets check searches.
+     */
+    @Synchronized fun joined(): String {
+        val sb = StringBuilder()
+        for (e in entries) {
+            sb.append("#").append(e.tap).append(' ').append(e.title)
+            for (line in e.lines) {
+                val c = CONTINUATION.find(line)
+                if (c != null) sb.append(line, c.range.last + 1, line.length) else sb.append('\n').append(line)
+            }
+            sb.append('\n')
+        }
+        return sb.toString()
+    }
+
     @Synchronized fun clear() {
         val device = entries.firstOrNull { it.tap == 0 }
         entries.clear()
@@ -207,5 +224,6 @@ class PlaygroundLog(private val mirror: (String) -> Unit = { Log.i(TAG, it) }) {
     companion object {
         const val TAG = "POLYJOSE"
         const val CHUNK = 800
+        private val CONTINUATION = Regex("^LOG [0-9]+\\.[0-9]+ \\+ ")
     }
 }

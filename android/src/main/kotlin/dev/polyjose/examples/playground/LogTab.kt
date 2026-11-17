@@ -37,19 +37,26 @@ class LogTab(private val p: Playground) {
         })
     }
 
-    init {
-        // Lines arrive on any thread; the text is rebuilt at most every 300 ms, on the main thread.
-        Session.log.onChange = {
-            if (visible) main.post {
-                if (!pending) {
-                    pending = true
-                    main.postDelayed({
-                        pending = false
-                        refresh()
-                    }, 300)
-                }
+    // Lines arrive on any thread; the text is rebuilt at most every 300 ms, on the main thread.
+    private val listener: () -> Unit = {
+        if (visible) main.post {
+            if (!pending) {
+                pending = true
+                main.postDelayed({
+                    pending = false
+                    refresh()
+                }, 300)
             }
         }
+    }
+
+    init {
+        Session.log.onChange = listener
+    }
+
+    /** When the activity goes: stop listening, unless a newer activity's tab already does. */
+    fun detach() {
+        if (Session.log.onChange === listener) Session.log.onChange = null
     }
 
     fun refresh() {

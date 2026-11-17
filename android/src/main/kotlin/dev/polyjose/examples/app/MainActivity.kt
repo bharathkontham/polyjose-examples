@@ -89,6 +89,11 @@ class MainActivity : Activity(), PromptHost {
         Session.activity = this
     }
 
+    override fun onDestroy() {
+        playground.detach()
+        super.onDestroy()
+    }
+
     /** Shows tab [index]; the playground tabs read the device again, for a lock screen set meanwhile. */
     private fun select(index: Int) {
         tabs.forEachIndexed { i, (b, v) ->
