@@ -1,0 +1,36 @@
+// POST /api/verify { tap, token, jwk }: the server verifies a compact JWS the browser signed
+// (RFC 7515 §5.2), with the browser's public JWK.
+//
+// The allow-list is the server's own, ES256 only, and never comes from the token's header
+// (RFC 8725 §3.1). So a token whose `alg` is `none` (RFC 8725 §3.2), or any algorithm other than
+// ES256, fails with AlgorithmNotAllowed before its signature is looked at, and a changed token
+// fails with InvalidSignature (RFC 7515 §5.2 step 8).
+//
+// A real service would take the key from its own registry of clients, not from the request.
+// The demo takes it from the request to show the crossing; the allow-list still decides.
+import { jwsVerifyCompact } from "@polyjose/node";
+
+import { MESSAGES, SIGNING_ALG } from "../../../lib/shared";
+import { RequestError, handlePost, jwkSummary, publicJwkField, stringField } from "../_server/http";
+
+export const runtime = "nodejs";
+
+/** The only algorithm this route accepts. */
+const ALLOWED_ALGS = [SIGNING_ALG] as const;
+
+export async function POST(request: Request): Promise<Response> {
+  return handlePost(request, "verify", async (body, log) => {
+    const token = stringField(body, "token");
+    const jwk = publicJwkField(body, "jwk");
+    log.step("input", { op: "jws-verify", store: "software", allowedAlgs: ALLOWED_ALGS.join(",") });
+    log.step("jwk", {}, jwkSummary(jwk));
+    const verified = await log.call("jwsVerifyCompact", () => jwsVerifyCompact(token, jwk, { allowedAlgs: ALLOWED_ALGS }));
+    const payload = new TextDecoder().decode(verified.payload);
+    const equal = payload === MESSAGES.browserSigns ? "equal" : "differs";
+    log.step("verify", { alg: verified.alg, bytes: verified.payload.length, payload: equal }, "ok");
+    // Only the app's fixed demo message is answered: any other payload is refused, so the route
+    // never echoes text it verified.
+    if (payload !== MESSAGES.browserSigns) throw new RequestError("BadRequest");
+    return { alg: verified.alg, payload: MESSAGES.browserSigns };
+  });
+}
