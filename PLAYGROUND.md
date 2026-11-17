@@ -2,7 +2,7 @@
 
 The playground is the interactive part of the example apps. You pick an operation, a key store, an algorithm and its options, run it, and see every step: the key, where the platform says it lives, the call, the header and token, the result, and the timings. A **Try a failure** menu shows how each misuse is refused, and with which error code.
 
-This file is the contract every playground follows, for polyjose **0.4.0**: the tabs, what is enabled where (and the code a refused combination gives), the explanation texts, the log format, the secrets rule and the key names. The iOS and Android apps implement it; it is not in them yet. Most of it applies to any app: the explanation ids, the log format, the secrets rule and the **Software** column. Each platform key store is its own column, with its own notes, so a playground on another platform adds its column and notes and leaves the others as they are.
+This file is the contract every playground follows, for polyjose **0.4.0**: the tabs, what is enabled where (and the code a refused combination gives), the explanation texts, the log format, the secrets rule and the key names. The iOS and Android apps implement it. Most of it applies to any app: the explanation ids, the log format, the secrets rule and the **Software** column. Each platform key store is its own column, with its own notes, so a playground on another platform adds its column and notes and leaves the others as they are.
 
 The playground calls the same example files as the [checks](CATALOG.md): there is one implementation of each key store.
 
@@ -52,25 +52,34 @@ Encryption is always done in software, to the key's public JWK. The store column
 
 - **`enc`:** A128GCM, A192GCM, A256GCM, A128CBC-HS256, A192CBC-HS384 and A256CBC-HS512, with every store. Content encryption is always polyjose's, in software.
 - **Below an API level** the cell is ✗ with `reason.api-level`, and Run anyway gives `UnsupportedAlgorithm`.
+- **Precedence.** The library checks in this order: the algorithm table, then the API level and the key options, then the device (a Secure Enclave or StrongBox present, a secure lock screen). When a cell breaks several rules, its refusal code is that of the first rule that fails in this order, and the playground shows that rule's reason.
 
 ### Apple notes
 
 - **No Secure Enclave** ([`SecureEnclave.isAvailable`](https://developer.apple.com/documentation/cryptokit/secureenclave/isavailable) false): the Secure Enclave column is ✗ with `reason.no-secure-enclave`; Run anyway gives `UnsupportedAlgorithm` from `AppleKey.generate`. There is no fallback to the Keychain.
 - **User authentication:** the four access flags (`option.access.*`, [`SecAccessControlCreateFlags`](https://developer.apple.com/documentation/security/secaccesscontrolcreateflags)), on Keychain and Secure Enclave keys. A cancelled, failed or impossible authentication gives `UserAuthenticationRequired`.
+  - **With no passcode set** ([`canEvaluatePolicy(.deviceOwnerAuthentication)`](https://developer.apple.com/documentation/localauthentication/lacontext/canevaluatepolicy(_:error:)) false): the playground disables every access flag, on Keychain and Secure Enclave keys, with `reason.no-lock-screen`. Run anyway is expected to give `UserAuthenticationRequired`; this is not yet confirmed on a device without a passcode.
+  - **On the iOS Simulator** a Secure Enclave key with any of the four flags can't be created: `AppleKey.generate` gives `UserAuthenticationRequired` at once, with no prompt. Keychain keys with the same flags are created. So on the Simulator only, the playground disables the four flags for the Secure Enclave with `reason.simulator-secure-enclave-auth`, and Run anyway gives `UserAuthenticationRequired`.
+  - **One shared `LAContext`** (`option.access.shared-context`): with a flag chosen, a toggle passes the playground's one [`LAContext`](https://developer.apple.com/documentation/localauthentication/lacontext), made on first use, to the key's calls (`AppleKey.Access.context`, [`kSecUseAuthenticationContext`](https://developer.apple.com/documentation/security/ksecuseauthenticationcontext)), so after one authentication the later calls with it don't ask again.
+  - **The Keys tab** shows a key's access flag only for keys made since the app started. For any other key it shows "not reported by iOS": the attributes that listing reads don't say which flag a key has.
+- **X25519** has no Apple key type. With the Keychain or the Secure Enclave, Run anyway asks `AppleKey.generate` for an `ECDH-ES` key of 255 bits (RFC 7748 §4.1) and gets `UnsupportedAlgorithm`.
+- **[Wrong-key decryption](#wrong-key-decryption)** encrypts to the chosen key and decrypts with a new key of the same kind in the same store, which it deletes afterwards.
 - **Where a key lives** is `AppleKey.protection`, which the platform reports for the key ([`kSecAttrTokenID`](https://developer.apple.com/documentation/security/ksecattrtokenid)), not the protection asked for.
 
 ### Android notes
 
 - **No StrongBox** ([`PackageManager.FEATURE_STRONGBOX_KEYSTORE`](https://developer.android.com/reference/android/content/pm/PackageManager)):
-  - `StrongBox.Required` is ✗ with `reason.no-strongbox`; Run anyway gives `PlatformKeyFailed`, and no key is left behind.
-  - `StrongBox.Preferred` is enabled and labelled "falls back to the TEE; the key reports where it went": it succeeds, and `securityLevel` says `TrustedEnvironment`.
+  - `StrongBox.Required` is ✗ with `reason.no-strongbox`; from API 28, Run anyway gives `PlatformKeyFailed`, and no key is left behind. Below API 28 the StrongBox cells are ✗ with `reason.api-level` (StrongBox needs API 28), and the library gives `UnsupportedAlgorithm` before it asks the Keystore.
+  - `StrongBox.Preferred` is enabled and labelled "falls back to the TEE; the key reports where it went": it succeeds, and `securityLevel` is not `StrongBox`: `TrustedEnvironment` on a device, `Software` on the `polyjose-api34` emulator.
   - A StrongBox cell that is ✗ in the tables gives `UnsupportedAlgorithm` under `Required`, with or without StrongBox.
 - **User authentication** ([`KeyGenParameterSpec.Builder`](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)):
-  - Time-bound (`option.auth.time-bound`): every key kind.
+  - None (`option.auth.none`): the key works whenever the app calls it.
+  - Time-bound (`option.auth.time-bound`): every key kind, with a window of 10, 30 or 60 seconds. **Authenticate now** shows the framework `BiometricPrompt`, with no crypto object, and opens the window; it is a tap of its own (`op=authenticate`, see [Log](#log)).
   - Per use (`option.auth.per-use`): signing and RSA-OAEP-256 keys. An ECDH key is ✗ with `reason.per-use-ecdh`; Run anyway gives `UnsupportedAlgorithm`.
   - `option.auth.device-credential` is a free choice from API 30; below 30 the platform decides it.
   - The playground offers keys with user authentication from API 28, because it shows the framework [`BiometricPrompt`](https://developer.android.com/reference/android/hardware/biometrics/BiometricPrompt). Below 28 they are ✗ with `reason.api-level`.
-  - A device with no secure lock screen: every user-authentication option is ✗ with `reason.no-lock-screen`; Run anyway shows the code the library returns (expected: `PlatformKeyFailed`).
+  - A device with no secure lock screen: every user-authentication option is ✗ with `reason.no-lock-screen`, and Run anyway gives `PlatformKeyFailed` (time-bound and per use, signing and RSA-OAEP-256 keys, every store). Per use on an ECDH key gives `UnsupportedAlgorithm` with `reason.per-use-ecdh` first, because the table is checked before the device.
+- **[Wrong-key decryption](#wrong-key-decryption)** encrypts to another software key of the same kind and decrypts with the chosen key. For a platform RSA-OAEP-256 key, the other key is the RFC 7515 Appendix A.2 public key.
 - **Where a key lives** is `AndroidKeystoreKey.securityLevel`, read from [`KeyInfo`](https://developer.android.com/reference/android/security/keystore/KeyInfo): `StrongBox`, `TrustedEnvironment`, `Software` or `Unknown` from API 31. Below 31, or when the platform reports an unnamed secure level, it is `SecureHardware`: the platform doesn't say whether the key is in the TEE or StrongBox.
 
 ### Web notes
@@ -118,10 +127,17 @@ Each action is one tap. It logs every step and ends with the code below.
 | `failure.sign.deleted-key` | Sign (platform keys) | Creates a key, deletes it, then opens it again by its tag or alias | `KeyNotFound` |
 | `failure.encrypt.tamper` | Encrypt | Encrypts, changes one character in the middle of the ciphertext part, and decrypts | `DecryptionFailed` |
 | `failure.encrypt.other-alg` | Encrypt | Encrypts, then decrypts with an `alg` allow-list that names only another `alg` | `AlgorithmNotAllowed` |
-| `failure.encrypt.wrong-key` | Encrypt | Encrypts, then decrypts with another key of the same `alg` and curve or size | `DecryptionFailed` |
+| `failure.encrypt.wrong-key` | Encrypt | Encrypts to one key and decrypts with another key of the same `alg` and curve or size ([below](#wrong-key-decryption)) | `DecryptionFailed` |
 | `failure.encrypt.deleted-key` | Encrypt (platform keys) | Creates a key, deletes it, then opens it again by its tag or alias | `KeyNotFound` |
 
-With a software key, the two deleted-key actions are disabled with `reason.software-not-stored`.
+With a software key, the two deleted-key actions are disabled with `reason.software-not-stored`. In the iOS and Android playgrounds, two more cases have no second key to use (the Browser column's rules for them are in [Web notes](#web-notes)):
+
+- **Software RS\*, PS\* and RSA-OAEP-256:** `failure.sign.wrong-key` and `failure.encrypt.wrong-key` are disabled with `key.test-rsa`, because the RFC 7515 Appendix A.2 test key is the only software RSA private key.
+- **EdDSA:** no other signing algorithm uses an Ed25519 key, so `failure.sign.other-alg` verifies with `["ES256"]`. The code is the same, `AlgorithmNotAllowed`, because the allow-list is checked before the key (RFC 8725 §3.1).
+
+### Wrong-key decryption
+
+`failure.encrypt.wrong-key` ends with `DecryptionFailed` (RFC 7516 §11.5). The playground's JWEs carry no `kid`, so polyjose doesn't refuse the key on a `kid` mismatch first: when the JWE and the key both carry a `kid` and they differ, polyjose 0.4.0 gives `KeyAlgorithmMismatch` before it decrypts (RFC 7516 §4.1.6). Which key encrypts and which decrypts is in each platform's notes ([Apple](#apple-notes), [Android](#android-notes)).
 
 ## Explanations
 
@@ -214,11 +230,13 @@ Every tab, algorithm, `enc`, curve, store, option, refusal reason, failure actio
 | `option.curve` | The curve of an ECDH-ES key: P-256, P-384, P-521 or X25519. |
 | `option.strongbox.off` | The TEE. StrongBox is never asked for. |
 | `option.strongbox.preferred` | StrongBox when the device has it and it can serve the algorithm, else the TEE: falls back to the TEE; the key reports where it went. |
-| `option.strongbox.required` | StrongBox or nothing. Without StrongBox, creating the key fails with `PlatformKeyFailed` and no key is left behind; there is never a silent move to the TEE. |
+| `option.strongbox.required` | StrongBox or nothing. Without StrongBox, creating the key fails with `PlatformKeyFailed` (API 28 or later; below 28, StrongBox is refused with `UnsupportedAlgorithm`) and no key is left behind; there is never a silent move to the TEE. |
 | `option.access.userPresence` | The user confirms each use with Face ID, Touch ID or the device passcode. |
 | `option.access.biometryAny` | The user confirms each use with Face ID or Touch ID, with any enrolled face or finger, including ones enrolled later. |
 | `option.access.biometryCurrentSet` | The user confirms each use with Face ID or Touch ID, with the faces or fingers enrolled now; a change to them makes the key unusable. |
 | `option.access.devicePasscode` | The user confirms each use with the device passcode. |
+| `option.access.shared-context` | One LAContext for the key's calls (kSecUseAuthenticationContext): after the user authenticates once, later calls with the same context don't ask again. |
+| `option.auth.none` | No user authentication: the key works whenever the app calls it. |
 | `option.auth.time-bound` | After the user authenticates in the app's prompt, the key works for the chosen number of seconds; outside that window a call fails with `UserAuthenticationRequired`. Every key kind. |
 | `option.auth.per-use` | Each signature or decryption shows a prompt bound to that one operation. Signing and RSA-OAEP-256 keys, API 28 or later. |
 | `option.auth.device-credential` | The PIN, pattern or password may stand in for a strong biometric. A free choice from API 30; below that the platform decides. |
@@ -233,6 +251,7 @@ Every tab, algorithm, `enc`, curve, store, option, refusal reason, failure actio
 | `reason.strongbox-algorithms` | StrongBox serves ES256, RS256 and PS256 at 2048 bits, ECDH-ES on P-256, and RSA-OAEP-256 at 2048 bits. |
 | `reason.api-level` | Needs Android API <level>; this device runs API <current>. |
 | `reason.no-secure-enclave` | This device has no Secure Enclave. |
+| `reason.simulator-secure-enclave-auth` | The Simulator's Secure Enclave can't create a key that needs user authentication. Try it on an iPhone, or with a Keychain key here. |
 | `reason.no-strongbox` | This device has no StrongBox. `Preferred` falls back to the TEE; `Required` fails. |
 | `reason.per-use-ecdh` | An ECDH key can be time-bound only, not per use. |
 | `reason.no-lock-screen` | Set a screen lock first: a key that needs user authentication needs a secure lock screen. |
@@ -249,7 +268,7 @@ Every tab, algorithm, `enc`, curve, store, option, refusal reason, failure actio
 | `failure.sign.deleted-key` | The key was deleted, so opening it again by its name finds nothing. |
 | `failure.encrypt.tamper` | One character of the ciphertext changed. Every decryption failure gives the same code, so it reveals nothing (RFC 7516 §11.5). |
 | `failure.encrypt.other-alg` | The recipient allows only another `alg` (RFC 8725 §3.1). |
-| `failure.encrypt.wrong-key` | Another key of the same kind decrypts, and decryption fails (RFC 7516 §11.5). |
+| `failure.encrypt.wrong-key` | The token is decrypted with a key other than the one it was encrypted to, of the same kind, and decryption fails (RFC 7516 §11.5). |
 | `failure.encrypt.deleted-key` | The key was deleted, so opening it again by its name finds nothing. |
 
 ### Error codes
@@ -277,7 +296,7 @@ The text gives the meaning, then what an app does about it.
 | `error.MultipleMatchingKeys` | More than one key in the JWK Set matches (RFC 7517 §5). Give the keys distinct `kid`s. |
 | `error.KeyNotFound` | No usable key under that name: none was created, it was deleted, or the platform invalidated it. Create a new key. |
 | `error.UserAuthenticationRequired` | The key needs the user to authenticate, and they haven't, cancelled, or can't (lockout, no biometrics). Prompt, then retry. |
-| `error.PlatformKeyFailed` | Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help. |
+| `error.PlatformKeyFailed` | Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help. When decrypting, such a failure gives `DecryptionFailed` instead, so every decryption failure looks the same (RFC 7516 §11.5). |
 
 ## Log
 
@@ -304,14 +323,15 @@ LOG 13.3 error code=UserAuthenticationRequired ms=2110
 | Event | Fields | When |
 |---|---|---|
 | `device` | `polyjose`, `os`, `model`, `simulator` or `emulator`, `secure-enclave` (iOS), `api` and `strongbox` (Android), `lock-screen` | once, at start (tap 0) |
-| `input` | `op`, `store`, `alg`, and as they apply `enc`, `crv`, `size`, `strongbox`, `auth`, `payload`, `failure`, `anyway=true` | first line of every tap |
+| `input` | `op`, `store`, `alg`, and as they apply `enc`, `crv`, `size`, `strongbox`, `auth`, `seconds` (Android: the time-bound window), `device-credential` (Android, time-bound or per use: whether the PIN, pattern or password may stand in), `payload`, `key` (Android: the alias of the chosen platform key, or the number of the chosen software key), `failure`, `anyway=true` | first line of every tap |
 | `key-create` | `tag` (iOS) or `alias` (Android), `reported`, `ms` | a platform key was created |
 | `key-open` | `tag` or `alias`, `reported`, `ms` | a platform key was opened again |
 | `key-delete` | `tag` or `alias`, `ms` | a platform key was deleted |
 | `key-software` | `kty`, `alg`, `kid`, and `bits` for an oct key; `test-key=true` for the RFC 7515 A.2 key | a software key was made or chosen |
 | `jwk` | the public JWK, through the public-only gate | a key's public JWK was shown or copied |
 | `thumbprint` | `value`, the RFC 7638 SHA-256 thumbprint | a thumbprint was shown |
-| `call` | the polyjose function name, `ms` | each polyjose call |
+| `call` | the polyjose function name, `ms` | each polyjose call, also `jwkThumbprint` for a thumbprint and, on Android, `decodeProtectedHeaderUnverified` for the `header` line of a token it made |
+| `authenticate` | `ok` or `failed`, then `result` (the framework's error number, when it gives one; never its text) and `ms`: `authenticate ok ms=…`, `authenticate failed result=<n> ms=…` | Android: the **Authenticate now** prompt closed |
 | `tamper` | `part` (`payload` or `ciphertext`), `index` | a failure action changed a token |
 | `header` | the protected header JSON | a token was made or read |
 | `token` | the compact token | a token was made or changed |
@@ -321,7 +341,7 @@ LOG 13.3 error code=UserAuthenticationRequired ms=2110
 | `error` | `code`, `ms` | a step failed |
 | `note` | `id`, an explanation id | the app showed an explanation with the result, for example `key.test-rsa` |
 
-`op` is one of `jws-sign`, `jws-verify`, `jws-sign-verify`, `jwt-sign`, `jwt-verify`, `jwt-sign-verify`, `jwe-encrypt`, `jwe-decrypt`, `jwe-round-trip`, `key-create`, `key-open`, `key-delete`, `key-delete-all`. `store` is the store id without `store.` (`software`, `keychain`, `secure-enclave`, `keystore`, `strongbox`). `failure` is the failure action id without `failure.`.
+`op` is one of `jws-sign`, `jws-verify`, `jws-sign-verify`, `jwt-sign`, `jwt-verify`, `jwt-sign-verify`, `jwe-encrypt`, `jwe-decrypt`, `jwe-round-trip`, `key-create`, `key-open`, `key-delete`, `key-delete-all`, and on Android `authenticate` (**Authenticate now**). `store` is the store id without `store.` (`software`, `keychain`, `secure-enclave`, `keystore`, `strongbox`). `failure` is the failure action id without `failure.`.
 
 ## Secrets
 
@@ -334,7 +354,11 @@ Nothing the user can see or copy holds a secret: the screen, the Log tab, the mi
   - Every JWK passes one public-only gate, which replaces any object with a private or symmetric member (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`) by `[withheld]`.
   - A software oct key is shown as `kty`, `alg`, `kid` and its length only. A private EC, OKP or RSA JWK is shown only as its public JWK.
   - An error is shown and logged as its code only: the `PolyjoseError` case name in Swift, the `PolyjoseException` subclass's simple name in Kotlin, and the type name of any other error. Never its message, `detail`, `localizedDescription` or platform error text.
-- **Checked:** the demo walk's captured log has no line that matches `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` (as `grep -E`), and the walk includes HS256 and A256KW oct keys and the software EC and RSA keys.
+- **Checked:** the demo walk includes HS256 and A256KW oct keys and the software EC and RSA keys. On iOS and Android:
+  - A walk step, `secrets/no-secret-value-in-log`, collects the values of the secret members of every software key the walk makes, the "other" keys of the wrong-key actions included, and fails if any of them is in the walk's log, with each `LOG <tap>.<step> + ` continuation joined back onto its line. It logs only counts, never a value.
+  - `run.sh --playground` joins the continuations of the captured log the same way, and fails when a line matches `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` (as `grep -E`) or holds the `d` value of the RFC 7515 A.2 test key, the walk's software RSA key (as `grep -F`), so the check doesn't rely on the app's own report.
+
+  These checks are the checkable minimum, not the whole rule: the rule above holds for every screen and log line, also those the walk doesn't reach.
 
 ## Key names
 

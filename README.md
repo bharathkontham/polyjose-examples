@@ -31,7 +31,7 @@ To serve a JWK Set, issue tokens and protect routes in a Node.js service, see th
 
 To pass tokens between a browser and a server, and to try every algorithm polyjose offers in a browser, see the [Next.js example](nextjs/README.md), its [checks](CATALOG.md#nextjs-checks) and its [playground notes](PLAYGROUND.md#web-notes).
 
-The decode and platform key store examples, and the iOS and Android playground, are not in the apps yet; their sections say so. [CATALOG.md](CATALOG.md#platform-key-checks) lists the platform-key checks, and [PLAYGROUND.md](PLAYGROUND.md) describes the playground.
+The platform key store examples and the playground are in the iOS and Android apps: one file per key store, which the [platform-key checks](CATALOG.md#platform-key-checks) run, and the playground's tabs next to the checks, which [PLAYGROUND.md](PLAYGROUND.md) describes. The decode example is not in the apps yet; the decode sections say so.
 
 Every example passes an explicit algorithm allow-list to verify and decrypt (RFC 8725 §3.1), never accepts `alg: none`, and never logs key material. Keys are generated at run time, except two RSA keys copied from the RFCs, which are labelled **test keys, never use in production**.
 

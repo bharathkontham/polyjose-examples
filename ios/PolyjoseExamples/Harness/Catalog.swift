@@ -14,16 +14,27 @@ enum Catalog {
         ["iss": issuer, "aud": audience, "sub": "user-123", "exp": exp]
     }
 
+    /// Fails unless the verified `claims` (JSON text) have the `iss`, `aud`, `sub` and `exp` of
+    /// `sent`.
+    static func expectClaims(_ claims: String, _ sent: [String: Any]) throws {
+        let received = try jsonObject(claims)
+        for name in ["iss", "aud", "sub"] {
+            try expectSame(stringMember(received, name), stringMember(sent, name), "claim \(name)")
+        }
+        try expectSame((received["exp"] as? NSNumber)?.int64Value, sent["exp"] as? Int64, "claim exp")
+    }
+
     /// An ES256 key pair and a compact JWS it signed.
     static func es256Token() throws -> (keys: SignVerifyJws.KeyPair, token: String) {
         let keys = try SignVerifyJws.signingKeyPair(alg: "ES256")
         return (keys, try SignVerifyJws.signCompact(payload, signKey: keys.signKey, alg: "ES256"))
     }
 
-    static let checks: [Check] = {
+    /// Every check, in catalog order. `run` names this run in the platform-key checks' tags.
+    static func checks(run: String) -> [Check] {
         var checks: [Check] = []
-        func check(_ id: String, _ run: @escaping @Sendable () throws -> Void) {
-            checks.append(Check(id: id, run: run))
+        func check(_ id: String, skip: @escaping @Sendable () -> String? = { nil }, _ run: @escaping @Sendable () throws -> Void) {
+            checks.append(Check(id: id, skip: skip, run: run))
         }
 
         // JWS: sign and verify (SignVerifyJws.swift)
@@ -205,6 +216,133 @@ enum Catalog {
             }, "NoMatchingKey")
         }
 
+        // Platform keys (PlatformKeysKeychain.swift, PlatformKeysSecureEnclave.swift). Each key
+        // lives under its own tag of this run, `dev.polyjose.examples.check.<run>.<name>`, and is
+        // deleted at the end of its check, also when the check fails. No key has `access` flags,
+        // so nothing prompts. Every signature is verified again in software with the key's public
+        // JWK, and every JWE is encrypted in software to it.
+        let tagPrefix = "dev.polyjose.examples.check.\(run)."
+        let ecdhAlg = EncryptDecrypt.alg
+        let ecdhEnc = EncryptDecrypt.enc
+
+        check("platform-key/keychain/es256-sign") {
+            try withKeyTag(tagPrefix + "keychain-es256-sign", delete: PlatformKeysKeychain.delete) { tag in
+                let key = try PlatformKeysKeychain.create(tag: tag, algorithm: "ES256")
+                try expectEqual(String(describing: PlatformKeysKeychain.whereItLives(key)), "keychain", "protection")
+                let token = try PlatformKeysKeychain.signJws(payload, key: key, alg: "ES256")
+                let verified = try SignVerifyJws.verifyCompact(token, verifyKey: key.publicJwk(), alg: "ES256")
+                try expectEqual(verified.alg, "ES256", "verified alg")
+                try expectSame(verified.payload, payload, "payload")
+            }
+        }
+
+        check("platform-key/keychain/es384-jwt") {
+            try withKeyTag(tagPrefix + "keychain-es384-jwt", delete: PlatformKeysKeychain.delete) { tag in
+                let key = try PlatformKeysKeychain.create(tag: tag, algorithm: "ES384")
+                let sent = claims()
+                let token = try PlatformKeysKeychain.signJwt(sent, key: key, alg: "ES384")
+                let verified = try SignVerifyJwt.validateToken(
+                    token, verifyKey: key.publicJwk(), alg: "ES384", issuer: issuer, audience: audience)
+                try expectEqual(verified.alg, "ES384", "verified alg")
+                try expectClaims(verified.claims, sent)
+            }
+        }
+
+        check("platform-key/keychain/ps256-sign") {
+            try withKeyTag(tagPrefix + "keychain-ps256-sign", delete: PlatformKeysKeychain.delete) { tag in
+                let key = try PlatformKeysKeychain.create(tag: tag, algorithm: "PS256", keySizeInBits: 2048)
+                let token = try PlatformKeysKeychain.signJws(payload, key: key, alg: "PS256")
+                let verified = try SignVerifyJws.verifyCompact(token, verifyKey: key.publicJwk(), alg: "PS256")
+                try expectEqual(verified.alg, "PS256", "verified alg")
+                try expectSame(verified.payload, payload, "payload")
+            }
+        }
+
+        check("platform-key/keychain/ecdh-es-a256kw-p-384") {
+            try withKeyTag(tagPrefix + "keychain-ecdh-es-p-384", delete: PlatformKeysKeychain.delete) { tag in
+                let key = try PlatformKeysKeychain.create(tag: tag, algorithm: "ECDH-ES", keySizeInBits: 384)
+                let publicJwk = try key.publicJwk()
+                try expectEqual(stringMember(jsonObject(publicJwk), "crv"), "P-384", "crv")
+                let token = try EncryptDecrypt.encryptTo(payload, recipientPublicKey: publicJwk)
+                let decrypted = try PlatformKeysKeychain.decrypt(token, key: key, allowedAlgs: [ecdhAlg], allowedEnc: [ecdhEnc])
+                try expectSame(decrypted.plaintext, payload, "plaintext")
+            }
+        }
+
+        check("platform-key/keychain/open-again") {
+            try withKeyTag(tagPrefix + "keychain-open-again", delete: PlatformKeysKeychain.delete) { tag in
+                let created = try PlatformKeysKeychain.create(tag: tag, algorithm: "ES256")
+                let opened = try PlatformKeysKeychain.open(tag: tag, algorithm: "ES256")
+                try expectEqual(
+                    jwkThumbprint(jwk: opened.publicJwk()), jwkThumbprint(jwk: created.publicJwk()), "thumbprint")
+                let token = try PlatformKeysKeychain.signJws(payload, key: opened, alg: "ES256")
+                let verified = try SignVerifyJws.verifyCompact(token, verifyKey: created.publicJwk(), alg: "ES256")
+                try expectSame(verified.payload, payload, "payload")
+            }
+        }
+
+        check("platform-key/keychain/delete-then-open") {
+            try withKeyTag(tagPrefix + "keychain-delete-then-open", delete: PlatformKeysKeychain.delete) { tag in
+                _ = try PlatformKeysKeychain.create(tag: tag, algorithm: "ES256")
+                try PlatformKeysKeychain.delete(tag: tag)
+                try expectCode(VerifyAllowList.rejectionCode {
+                    _ = try PlatformKeysKeychain.open(tag: tag, algorithm: "ES256")
+                }, "KeyNotFound")
+            }
+        }
+
+        // The one skip condition of checks 41-43 (CATALOG.md).
+        let noSecureEnclave: @Sendable () -> String? = {
+            PlatformKeysSecureEnclave.isAvailable ? nil : "no Secure Enclave on this device"
+        }
+
+        check("platform-key/secure-enclave/es256-sign", skip: noSecureEnclave) {
+            try withKeyTag(tagPrefix + "secure-enclave-es256-sign", delete: PlatformKeysSecureEnclave.delete) { tag in
+                let key = try PlatformKeysSecureEnclave.create(tag: tag, algorithm: "ES256")
+                try expectEqual(String(describing: PlatformKeysSecureEnclave.whereItLives(key)), "secureEnclave", "protection")
+                let token = try PlatformKeysSecureEnclave.signJws(payload, key: key)
+                let verified = try SignVerifyJws.verifyCompact(token, verifyKey: key.publicJwk(), alg: "ES256")
+                try expectEqual(verified.alg, "ES256", "verified alg")
+                try expectSame(verified.payload, payload, "payload")
+            }
+        }
+
+        check("platform-key/secure-enclave/es256-jwt", skip: noSecureEnclave) {
+            try withKeyTag(tagPrefix + "secure-enclave-es256-jwt", delete: PlatformKeysSecureEnclave.delete) { tag in
+                let key = try PlatformKeysSecureEnclave.create(tag: tag, algorithm: "ES256")
+                let sent = claims()
+                let token = try PlatformKeysSecureEnclave.signJwt(sent, key: key)
+                let verified = try SignVerifyJwt.validateToken(
+                    token, verifyKey: key.publicJwk(), alg: "ES256", issuer: issuer, audience: audience)
+                try expectEqual(verified.alg, "ES256", "verified alg")
+                try expectClaims(verified.claims, sent)
+            }
+        }
+
+        check("platform-key/secure-enclave/ecdh-es-a256kw-p-256", skip: noSecureEnclave) {
+            try withKeyTag(tagPrefix + "secure-enclave-ecdh-es-p-256", delete: PlatformKeysSecureEnclave.delete) { tag in
+                let key = try PlatformKeysSecureEnclave.create(tag: tag, algorithm: "ECDH-ES")
+                let publicJwk = try key.publicJwk()
+                try expectEqual(stringMember(jsonObject(publicJwk), "crv"), "P-256", "crv")
+                let token = try EncryptDecrypt.encryptTo(payload, recipientPublicKey: publicJwk)
+                let decrypted = try PlatformKeysSecureEnclave.decrypt(token, key: key, allowedAlgs: [ecdhAlg], allowedEnc: [ecdhEnc])
+                try expectSame(decrypted.plaintext, payload, "plaintext")
+            }
+        }
+
+        // Never skips: `generate` refuses ES384 for the Secure Enclave before it checks that one
+        // is available (CATALOG.md, check 44).
+        check("platform-key/secure-enclave/rejects-es384") {
+            try withKeyTag(tagPrefix + "secure-enclave-rejects-es384", delete: PlatformKeysSecureEnclave.delete) { tag in
+                try expectCode(VerifyAllowList.rejectionCode {
+                    _ = try PlatformKeysSecureEnclave.create(tag: tag, algorithm: "ES384")
+                }, "UnsupportedAlgorithm")
+                try expectCode(VerifyAllowList.rejectionCode {
+                    _ = try PlatformKeysSecureEnclave.open(tag: tag, algorithm: "ES384")
+                }, "KeyNotFound")
+            }
+        }
+
         return checks
-    }()
+    }
 }

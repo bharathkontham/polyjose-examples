@@ -24,6 +24,8 @@ DEVELOPMENT_TEAM =
 GENERATE_INFOPLIST_FILE = YES
 INFOPLIST_KEY_CFBundleDisplayName = polyjose examples
 INFOPLIST_KEY_UILaunchScreen_Generation = YES
+// The playground's keys with `.biometryAny` or `.biometryCurrentSet` use Face ID, which needs this.
+INFOPLIST_KEY_NSFaceIDUsageDescription = The playground uses Face ID to authorize signatures and decryptions with keys you create that require it.
 INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
 INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
