@@ -28,7 +28,7 @@ Each app is organised by developer task: one example file per task, which you ca
 
 To serve a JWK Set, issue tokens and protect routes in a Node.js service, see the [NestJS example](nestjs/README.md) and its [checks](CATALOG.md#nestjs-service-checks).
 
-The platform key store examples are in the iOS and Android apps, one file per key store, and [CATALOG.md](CATALOG.md#platform-key-checks) lists the platform-key checks that run them. The decode example and the playground are not in the apps yet; the decode sections say so, and [PLAYGROUND.md](PLAYGROUND.md) describes the playground.
+The platform key store examples and the playground are in the iOS and Android apps: one file per key store, which the [platform-key checks](CATALOG.md#platform-key-checks) run, and the playground's tabs next to the checks, which [PLAYGROUND.md](PLAYGROUND.md) describes. The decode example is not in the apps yet; the decode sections say so.
 
 Every example passes an explicit algorithm allow-list to verify and decrypt (RFC 8725 §3.1), never accepts `alg: none`, and never logs key material. Keys are generated at run time, except two RSA keys copied from the RFCs, which are labelled **test keys, never use in production**.
 
