@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bharathkontham/polyjose",
       "state" : {
-        "revision" : "f94b84a45af647a0a385a5997c7a69fa64a34223",
-        "version" : "0.2.0"
+        "revision" : "dc41ae3a59bc6bbdf75c339fb9b03f59f18e7e60",
+        "version" : "0.4.0"
       }
     }
   ],
