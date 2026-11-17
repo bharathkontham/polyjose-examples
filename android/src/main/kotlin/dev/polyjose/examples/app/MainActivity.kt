@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import dev.polyjose.examples.BuildConfig
+import dev.polyjose.examples.hasStrongBox
 import dev.polyjose.version
 
 class MainActivity : Activity() {
@@ -70,7 +71,7 @@ class MainActivity : Activity() {
                 "polyjose $polyjose through dev.polyjose:polyjose (${BuildConfig.POLYJOSE_SOURCE}), " +
                     "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) on ${Build.MODEL}",
             )
-            runCatalog(info) { line ->
+            runCatalog(info, hasStrongBox(this)) { line ->
                 Log.i(TAG, line)
                 runOnUiThread { output.append(line + "\n") }
             }

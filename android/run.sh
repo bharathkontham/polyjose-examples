@@ -28,7 +28,7 @@ cd "$(dirname "$0")"
 app_id=dev.polyjose.examples
 activity=$app_id/.app.MainActivity
 apk=build/outputs/apk/debug/polyjose-examples-android-debug.apk
-expected_checks=34 # N: the number of Android checks CATALOG.md lists for the pinned polyjose (0.4.0)
+expected_checks=44 # N: the number of Android checks CATALOG.md lists for the pinned polyjose (0.4.0)
 avd=${POLYJOSE_AVD:-polyjose-api34}
 port=${POLYJOSE_EMULATOR_PORT:-5580}
 timeout=${POLYJOSE_TIMEOUT:-300}
