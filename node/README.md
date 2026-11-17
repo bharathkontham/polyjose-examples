@@ -2,6 +2,8 @@
 
 `polyjose-examples-node` uses [`@polyjose/node`](https://www.npmjs.com/package/@polyjose/node) 0.4.0, the only dependency. Each file in [`examples/`](examples/) answers one "How do I…?" question, imports `@polyjose/node` directly, and can be copied into your project on its own. [`verify.mjs`](verify.mjs) runs every check of the [catalog](../CATALOG.md) through those files.
 
+JavaScript only, no build step. For the same examples in TypeScript, see [`node-ts/`](../node-ts/README.md).
+
 Needs Node.js 22.12 or later.
 
 ## Run it
