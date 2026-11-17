@@ -354,7 +354,11 @@ Nothing the user can see or copy holds a secret: the screen, the Log tab, the mi
   - Every JWK passes one public-only gate, which replaces any object with a private or symmetric member (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`) by `[withheld]`.
   - A software oct key is shown as `kty`, `alg`, `kid` and its length only. A private EC, OKP or RSA JWK is shown only as its public JWK.
   - An error is shown and logged as its code only: the `PolyjoseError` case name in Swift, the `PolyjoseException` subclass's simple name in Kotlin, and the type name of any other error. Never its message, `detail`, `localizedDescription` or platform error text.
-- **Checked:** the demo walk's captured log has no line that matches `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` (as `grep -E`), and the walk includes HS256 and A256KW oct keys and the software EC and RSA keys. This grep is the checkable minimum, not the whole rule: the rule above holds for every screen and log line, also those the walk doesn't reach.
+- **Checked:** the demo walk includes HS256 and A256KW oct keys and the software EC and RSA keys. On iOS and Android:
+  - A walk step, `secrets/no-secret-value-in-log`, collects the values of the secret members of every software key the walk makes, the "other" keys of the wrong-key actions included, and fails if any of them is in the walk's log, with each `LOG <tap>.<step> + ` continuation joined back onto its line. It logs only counts, never a value.
+  - `run.sh --playground` joins the continuations of the captured log the same way, and fails when a line matches `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` (as `grep -E`) or holds the `d` value of the RFC 7515 A.2 test key, the walk's software RSA key (as `grep -F`), so the check doesn't rely on the app's own report.
+
+  These checks are the checkable minimum, not the whole rule: the rule above holds for every screen and log line, also those the walk doesn't reach.
 
 ## Key names
 

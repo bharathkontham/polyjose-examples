@@ -71,6 +71,10 @@ final class Playground: ObservableObject {
     @Published private(set) var lastEncrypted: (token: String, key: UsableKey, alg: String, enc: String)?
     /// Every tag created in this run, in order (the demo walk deletes the ones it made).
     private(set) var createdTags: [String] = []
+    /// Set by the demo walk only: called with the private or symmetric JWK of every software key
+    /// made, the "other" keys of the failure actions included, for its secrets check. The JWK is
+    /// never logged or shown.
+    var softwareKeyMade: (@MainActor (String) -> Void)?
     private var nextSoftware = 1
     private var shared: SharedContext?
 
@@ -104,7 +108,9 @@ final class Playground: ObservableObject {
 
     // MARK: - Sign
 
-    func sign(_ spec: KeySpec, jwt jwtChosen: Bool, _ action: SignAction, anyway: Bool = false) async -> Card {
+    /// `nil` when another tap is still running (each action is one tap at a time).
+    func sign(_ spec: KeySpec, jwt jwtChosen: Bool, _ action: SignAction, anyway: Bool = false) async -> Card? {
+        guard !busy else { return nil }
         busy = true
         defer { busy = false }
         let failure: Failure? = if case .failure(let f) = action { f } else { nil }
@@ -213,16 +219,17 @@ final class Playground: ObservableObject {
     /// platform RSA key the RFC 7515 A.2 test key's public JWK.
     private func otherVerifyKey(_ tap: Tap, alg: String) async -> String? {
         let kid = "playground-\(alg)-other"
-        let made = await offMain { () -> (String, SoftwareKeySummary) in
+        let made = await offMain { () -> (String, SoftwareKeySummary, secret: String) in
             if Matrix.isRsa(alg) {
                 let jwk = try jwkToPublic(jwk: TestKeys.rfc7515A2RsaPrivateJwk)
-                return (jwk, SoftwareKeySummary(kty: "RSA", alg: alg, kid: "-", bits: nil, testKey: true))
+                return (jwk, SoftwareKeySummary(kty: "RSA", alg: alg, kid: "-", bits: nil, testKey: true), TestKeys.rfc7515A2RsaPrivateJwk)
             }
             let key = try SoftwareKeys.signing(alg: alg, kid: kid)
-            return (key.verifyOrEncryptKey, key.summary)
+            return (key.verifyOrEncryptKey, key.summary, key.secretJwk)
         }
         switch made.result {
-        case .success(let (jwk, summary)):
+        case .success(let (jwk, summary, secret)):
+            softwareKeyMade?(secret)
             tap.log(.keySoftware(summary))
             if summary.testKey { tap.log(.note("key.test-rsa")) }
             if !alg.hasPrefix("HS") { tap.log(.jwk(publicOnly(jwk))) }
@@ -235,7 +242,9 @@ final class Playground: ObservableObject {
 
     // MARK: - Encrypt
 
-    func encrypt(_ spec: KeySpec, enc: String, _ action: EncryptAction, anyway: Bool = false) async -> Card {
+    /// `nil` when another tap is still running.
+    func encrypt(_ spec: KeySpec, enc: String, _ action: EncryptAction, anyway: Bool = false) async -> Card? {
+        guard !busy else { return nil }
         busy = true
         defer { busy = false }
         let failure: Failure? = if case .failure(let f) = action { f } else { nil }
@@ -333,6 +342,7 @@ final class Playground: ObservableObject {
             }
             switch made.result {
             case .success(let key):
+                softwareKeyMade?(key.secretJwk)
                 if keep { softwareKeys.append(key) }
                 logSoftware(tap, key)
                 return .software(key)
@@ -421,7 +431,9 @@ final class Playground: ObservableObject {
     }
 
     /// Keys tab, **Create key**: a signing key, or a decryption key for the JWE `alg`.
-    func createKey(_ spec: KeySpec, anyway: Bool = false) async -> Card {
+    /// `nil` when another tap is still running.
+    func createKey(_ spec: KeySpec, anyway: Bool = false) async -> Card? {
+        guard !busy else { return nil }
         busy = true
         defer { busy = false }
         let tap = log.begin("Create key \(spec.alg) · \(spec.store.title)")
@@ -433,7 +445,9 @@ final class Playground: ObservableObject {
     }
 
     /// Keys tab, **Open again**: opens the key by its tag and shows its public JWK and thumbprint.
-    func openAgain(_ listed: ListedKey) async -> (card: Card, thumbprint: String?) {
+    /// `nil` when another tap is still running.
+    func openAgain(_ listed: ListedKey) async -> (card: Card, thumbprint: String?)? {
+        guard !busy else { return nil }
         busy = true
         defer { busy = false }
         let tap = log.begin("Open key \(listed.algorithm) · \(listed.store.title)")
@@ -471,7 +485,9 @@ final class Playground: ObservableObject {
         tap.log(.jwk(publicOnly(publicJwk)))
     }
 
-    func deleteKey(_ listed: ListedKey) async -> Card {
+    /// `nil` when another tap is still running.
+    func deleteKey(_ listed: ListedKey) async -> Card? {
+        guard !busy else { return nil }
         busy = true
         defer { busy = false }
         let tap = log.begin("Delete key \(listed.algorithm) · \(listed.store.title)")
@@ -493,10 +509,15 @@ final class Playground: ObservableObject {
         tap.log(.input(Input(op: .keyDelete, store: .software, alg: key.alg)))
         tap.log(.keySoftware(key.summary))
         softwareKeys.removeAll { $0.id == key.id }
+        // A deleted key can't verify or decrypt the last token any more.
+        if lastSigned?.verifyKey == key.verifyOrEncryptKey { lastSigned = nil }
+        if case .software(let last)? = lastEncrypted?.key, last.id == key.id { lastEncrypted = nil }
     }
 
     /// **Delete all playground keys**: every key under the playground prefix, and the software keys.
-    func deleteAll() async -> Card {
+    /// `nil` when another tap is still running.
+    func deleteAll() async -> Card? {
+        guard !busy else { return nil }
         busy = true
         defer { busy = false }
         let tap = log.begin("Delete all playground keys")
@@ -524,6 +545,8 @@ final class Playground: ObservableObject {
             return (ec, try jwkGenerateOct(lenBytes: 32), try jwkToPublic(jwk: ec))
         }
         guard case .success(let (ec, oct, ecPublic)) = keys.result else { return false }
+        softwareKeyMade?(ec)
+        softwareKeyMade?(oct)
         let gated = [publicOnly(ec), publicOnly(oct), publicOnly(ecPublic)]
         gated.forEach { tap.log(.jwk($0)) }
         return gated[0].text == "[withheld]" && gated[1].text == "[withheld]" && gated[2].text.contains("\"x\"")

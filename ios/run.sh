@@ -9,8 +9,10 @@
 #   ./run.sh --playground                  instead of the checks, the playground's demo walk
 #                                          (../PLAYGROUND.md, "Demo walk"): one `WALK` line per
 #                                          step, then `POLYJOSE-PLAYGROUND: N/M OK`. Exits 0 only
-#                                          when N = M and no captured line holds a private or
-#                                          symmetric JWK member (PLAYGROUND.md, "Secrets").
+#                                          when N = M = the walk's step count, the capture holds
+#                                          LOG lines, and no captured line (continuations joined)
+#                                          holds a private or symmetric JWK member or the `d` of
+#                                          the RFC 7515 A.2 test key (PLAYGROUND.md, "Secrets").
 #
 # The Simulator: a device named `polyjose-examples` on the newest installed iOS runtime, created
 # the first time and kept for the next runs. When it is not running, run.sh boots it and shuts it
@@ -43,6 +45,10 @@ bundle_id=dev.polyjose.examples
 device_name=polyjose-examples
 expected_checks=44 # N: the number of iOS checks CATALOG.md lists for the pinned polyjose (0.4.0)
 min_ran=34         # the checks that never skip (CATALOG.md, "Output and pass rule")
+expected_walk=181  # M: the demo walk's steps; the same on every device (a cell the device lacks runs Run anyway)
+# The `d` of the RFC 7515 A.2 test key, the walk's software RSA key: a published test value, not
+# a secret. The capture must not hold it, whatever the app's own secrets check reports.
+rfc7515_a2_d=Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97IjlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYTCBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLhBOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ
 timeout=${POLYJOSE_TIMEOUT:-300}
 build_dir=$here/.build
 logs=$build_dir/logs
@@ -268,16 +274,32 @@ if [ "$mode" = playground ]; then
   read -r ok walked <<<"$counts"
   ok_lines=$(printf '%s\n' "$walk" | grep -c '^WALK OK ' || true)
   walk_lines=$(printf '%s\n' "$walk" | grep -c '^WALK ' || true)
-  # The secrets check over everything the app printed, the LOG lines included.
-  secrets=$(tr -d '\r' <"$out" | grep -cE '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' || true)
-  log_lines=$(tr -d '\r' <"$out" | grep -c '^LOG ' || true)
-  echo "$me: secrets check: $secrets of $(tr -d '\r' <"$out" | wc -l | tr -d ' ') captured lines ($log_lines LOG lines) hold a private or symmetric JWK member" >&2
+  # The secrets check over everything the app printed, the LOG lines included, with each
+  # `LOG <tap>.<step> + ` continuation joined back onto its line first (PLAYGROUND.md, "Log").
+  joined=$build_dir/playground-joined.log
+  tr -d '\r' <"$out" | awk '
+    /^LOG [0-9]+\.[0-9]+ \+ / { sub(/^LOG [0-9]+\.[0-9]+ \+ /, ""); line = line $0; next }
+    { if (NR > 1) print line; line = $0 }
+    END { print line }' >"$joined"
+  secrets=$(grep -cE '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' "$joined" || true)
+  test_key=$(grep -cF -- "$rfc7515_a2_d" "$joined" || true)
+  log_lines=$(grep -c '^LOG ' "$joined" || true)
+  echo "$me: secrets check: $secrets of $(grep -c '' "$joined") captured lines ($log_lines LOG lines, continuations joined) hold a private or symmetric JWK member, $test_key the RFC 7515 A.2 test key's d" >&2
+  status=0
   if [ "$ok" != "$ok_lines" ] || [ "$walked" != "$walk_lines" ]; then
     echo "$me: the final line does not match the $ok_lines OK and $walk_lines WALK lines" >&2
-    exit 1
+    status=1
   fi
-  if [ "$walked" -gt 0 ] && [ "$ok" = "$walked" ] && [ "$secrets" = 0 ]; then exit 0; fi
-  exit 1
+  if [ "$walked" != "$expected_walk" ]; then
+    echo "$me: the walk has $walked steps; it should have $expected_walk" >&2
+    status=1
+  fi
+  if [ "$log_lines" = 0 ]; then
+    echo "$me: the capture holds no LOG lines, so the secrets check saw nothing" >&2
+    status=1
+  fi
+  [ "$ok" = "$walked" ] && [ "$secrets" = 0 ] && [ "$test_key" = 0 ] || status=1
+  exit "$status"
 fi
 
 # --- the checks -------------------------------------------------------------------------------

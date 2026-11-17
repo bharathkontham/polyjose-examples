@@ -74,7 +74,7 @@ struct KeysView: View {
             .task { await playground.refreshKeys() }
             .sheet(item: $info) { InfoSheet(item: $0) }
             .confirmationDialog("Delete every playground key?", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
-                Button("Delete all", role: .destructive) { Task { card = await playground.deleteAll() } }
+                Button("Delete all", role: .destructive) { Task { if let made = await playground.deleteAll() { card = made } } }
             }
         }
     }
@@ -110,7 +110,7 @@ private struct PlatformKeyDetail: View {
                 Text(Explanations.text(key.store.explanationId))
             }
             Section {
-                Button("Open again") { Task { (card, thumbprint) = await playground.openAgain(key) } }
+                Button("Open again") { Task { if let made = await playground.openAgain(key) { (card, thumbprint) = made } } }
                 if let jwk = card?.publicJwk {
                     Button("Copy public JWK") {
                         UIPasteboard.general.string = jwk
@@ -119,8 +119,9 @@ private struct PlatformKeyDetail: View {
                 }
                 Button("Delete", role: .destructive) {
                     Task {
-                        card = await playground.deleteKey(key)
-                        if card?.succeeded == true { dismiss() }
+                        guard let made = await playground.deleteKey(key) else { return }
+                        card = made
+                        if made.succeeded { dismiss() }
                     }
                 }
             }
@@ -239,6 +240,6 @@ private struct CreateKeyView: View {
     }
 
     private func create(_ spec: KeySpec, anyway: Bool = false) {
-        Task { card = await playground.createKey(spec, anyway: anyway) }
+        Task { if let made = await playground.createKey(spec, anyway: anyway) { card = made } }
     }
 }

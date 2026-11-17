@@ -117,15 +117,15 @@ On the Simulator, the Secure Enclave can't create a key with user authentication
 ./run.sh --playground
 ```
 
-`run.sh --playground` builds the app and launches it on the Simulator with `-playground-demo`. The app runs, through the same functions as the buttons: every cell of the support matrix for this device (each algorithm on each store, each `alg` and curve with `A256GCM`, each other `enc` with `ECDH-ES+A256KW` on P-256, the larger RSA sizes); **Run anyway** on every disabled cell, which must give the code of its row; the failure actions; creating and listing a key with each access flag on each store; opening a key again; and the public-only gate. Nothing prompts. It then deletes the keys it made. One `WALK OK` or `WALK FAIL` line per step, then:
+`run.sh --playground` builds the app and launches it on the Simulator with `-playground-demo`. The app runs, through the same functions as the buttons: every cell of the support matrix for this device (each algorithm on each store, each `alg` and curve with `A256GCM`, each other `enc` with `ECDH-ES+A256KW` on P-256, the larger RSA sizes); **Run anyway** on every disabled cell, which must give the code of its row; the failure actions; creating and listing a key with each access flag on each store; opening a key again; and the public-only gate. Nothing prompts. It then deletes the keys it made, and its last step, `secrets/no-secret-value-in-log`, looks for the secret member values (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`) of every software key it made, the "other" keys of the wrong-key actions included, in its whole log, long lines joined; it prints only how many it found. One `WALK OK` or `WALK FAIL` line per step, then:
 
 ```
-POLYJOSE-PLAYGROUND: 180/180 OK
+POLYJOSE-PLAYGROUND: 181/181 OK
 ```
 
-It exits 0 only when every step gave its expected outcome and `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:'` finds nothing in everything the app printed. The full log, `LOG` lines included, is `.build/logs/playground.log`.
+It exits 0 only when all 181 steps gave their expected outcome, the app printed `LOG` lines, and in everything it printed, with each `LOG <tap>.<step> + ` continuation joined back onto its line, `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:'` finds no member name and `grep -F` finds no `d` value of the RFC 7515 A.2 test key (the walk's software RSA key), so the check doesn't rely on the app's own report. The full log, `LOG` lines included, is `.build/logs/playground.log`.
 
-Ran on: the iOS 27.2 Simulator, `POLYJOSE-PLAYGROUND: 180/180 OK`.
+Ran on: the iOS 27.2 Simulator, `POLYJOSE-PLAYGROUND: 181/181 OK`.
 
 ### On an iPhone, step by step
 
@@ -141,10 +141,11 @@ The prompts, Face ID and the Secure Enclave hardware can only be tried on a devi
 8. **One shared LAContext:** **Sign**, Secure Enclave, ES256, `.userPresence`, turn on **One shared LAContext**, Key **New key**, **Sign**: one prompt. Pick that key under **Key** and tap **Sign** again: note whether it asks again (expected: no).
 9. **Encrypt**, Secure Enclave, `ECDH-ES+A256KW`, P-256, **Round trip**: the plaintext equals the input, "Key lives in: Secure Enclave". Then Keychain, `RSA-OAEP-256`, 2048, **Round trip**: the same, "Key lives in: Keychain".
 10. **On a spare device only** ("can't authenticate"): create a Secure Enclave ES256 key with `.biometryCurrentSet` (**Keys** > **Create key**), remove Face ID in Settings and keep the passcode, then sign with that key: record the code.
-11. **Log** > **Share** (for example AirDrop to a Mac), and on the Mac run `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' <the shared file>`: it must print nothing.
-12. **Keys** > **Delete all playground keys**: the Keychain and Secure Enclave lists are empty.
+11. **Keys**: the keys with user authentication from steps 6–8 (and 10) are in the Secure Enclave list. Opening the tab and pulling to refresh show no prompt.
+12. **Log** > **Share** (for example AirDrop to a Mac), and on the Mac run `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' <the shared file>`: it must print nothing.
+13. **Keys** > **Delete all playground keys**: the Keychain and Secure Enclave lists are empty.
 
-What to record, as one row: the date, the iPhone model and iOS version (the **Keys** tab's "This device"), the `polyjose-examples` commit, the Checks final line, and for steps 3–10 what "Key lives in" said, each code, and whether and how often a prompt appeared; then the grep result of step 11.
+What to record, as one row: the date, the iPhone model and iOS version (the **Keys** tab's "This device"), the `polyjose-examples` commit, the Checks final line, and for steps 3–11 what "Key lives in" said, each code, and whether and how often a prompt appeared; then the grep result of step 12.
 
 ## Test keys
 
