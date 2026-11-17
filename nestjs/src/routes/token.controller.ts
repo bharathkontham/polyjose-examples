@@ -4,10 +4,11 @@
 //     -d grant_type=client_credentials -d client_id=demo-client -d client_secret="$SECRET"
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { Body, Controller, HttpCode, HttpException, Inject, Logger, Post, Res } from "@nestjs/common";
+import { Body, Controller, HttpCode, Inject, Logger, Post, Res } from "@nestjs/common";
 
 import { DEMO_CLIENT_CONFIG, type DemoClientConfig } from "../config.js";
 import { TokenService } from "../polyjose/token.service.js";
+import { AppHttpException } from "../safe-exception.filter.js";
 
 interface HeaderResponse {
   setHeader(name: string, value: string): unknown;
@@ -21,8 +22,8 @@ interface TokenResponse {
 }
 
 /** RFC 6749 §5.2: an error response, with no detail beyond the error code. */
-function oauthError(status: 400 | 401, error: "invalid_request" | "invalid_client" | "unsupported_grant_type"): HttpException {
-  return new HttpException({ error }, status);
+function oauthError(status: 400 | 401, error: "invalid_request" | "invalid_client" | "unsupported_grant_type"): AppHttpException {
+  return new AppHttpException({ error }, status);
 }
 
 /**

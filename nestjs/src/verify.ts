@@ -5,9 +5,11 @@
 //   FAIL nestjs/guard/rejects-expired: expected TokenExpired, got InvalidSignature
 //   POLYJOSE-VERIFY: 9/10 PASS
 //
-// It exits 0 only when all 10 checks ran and passed, and the secrets scan found nothing: no
-// private JWK member (`"d":`, `"k":` and the RSA ones) and no client secret in the server log
-// or in any response body. A FAIL line never shows key material or token contents.
+// It exits 0 only when all 10 checks ran and passed, and the secrets scan found nothing. The scan
+// reads the whole server log, every response body and both printed forms of KeyService
+// (`JSON.stringify`, `util.inspect`), and looks for a private JWK member (`"d":`, `"k":` and the
+// RSA ones), the signing key's actual `d` value and the client secret; the log must also hold no
+// issued access token. A FAIL line never shows key material or token contents.
 //
 // Environment:
 //   RUN_TIMEOUT  seconds the run may take (default 120); then `POLYJOSE-VERIFY: 0/10 PASS (timeout)`
@@ -92,6 +94,8 @@ const base = (await app.getUrl()).replace("[::1]", "127.0.0.1");
 
 /** Every response body the checks received, for the secrets scan. */
 const bodies: string[] = [];
+/** Every access token POST /token issued: none may appear in the server log. */
+const issuedTokens: string[] = [];
 
 interface Reply {
   status: number;
@@ -107,11 +111,15 @@ async function request(path: string, init: RequestInit = {}): Promise<Reply> {
   return { status: response.status, headers: response.headers, text, json: () => JSON.parse(text) as unknown };
 }
 
-const requestToken = (secret: string): Promise<Reply> =>
-  request("/token", {
+async function requestToken(secret: string): Promise<Reply> {
+  const reply = await request("/token", {
     method: "POST",
     body: new URLSearchParams({ grant_type: "client_credentials", client_id: CLIENT_ID, client_secret: secret }),
   });
+  const body: unknown = reply.status === 200 ? reply.json() : undefined;
+  if (isObject(body) && typeof body.access_token === "string") issuedTokens.push(body.access_token);
+  return reply;
+}
 
 const me = (token: string | undefined): Promise<Reply> =>
   request("/me", token === undefined ? {} : { headers: { authorization: `Bearer ${token}` } });
@@ -146,6 +154,12 @@ function tamperPayload(token: string): string {
   return parts.join(".");
 }
 
+/** KeyService printed both ways a developer might print it. */
+function printedKeyService(): string[] {
+  const keyService = app.get(KeyService);
+  return [JSON.stringify(keyService), inspect(keyService, { showHidden: true, depth: Infinity })];
+}
+
 /** Signs `claims` as a JWT with `key`, outside the service (an attacker's or a test's token). */
 const signWith = (claims: JsonObject, key: JwkObject, alg: string): Promise<string> => jwtSign(claims, key, { alg });
 
@@ -164,7 +178,7 @@ async function assertRejected(token: string, code: string): Promise<void> {
   const reply = await me(token);
   assertEq(reply.status, 401, "status");
   assertEq(reply.headers.get("www-authenticate"), 'Bearer error="invalid_token"', "WWW-Authenticate");
-  assertEq(reply.text, '{"error":"invalid_token"}', "body");
+  assert(reply.text === '{"error":"invalid_token"}', "body differs");
   const logged = logger.lines.slice(from).map((line) => /token rejected code=(\S+)/.exec(line)?.[1]).filter((c) => c !== undefined);
   if (logged.length !== 1 || logged[0] !== code) throw new CheckFailure(`expected ${code}, got ${logged.join(",") || "no log line"}`);
 }
@@ -195,10 +209,8 @@ check("nestjs/jwks/public-only", async () => {
     assert(isObject(key), "a key is not an object");
     for (const member of PRIVATE_MEMBERS) assert(!Object.hasOwn(key, member), `kid=${String(key.kid)} has "${member}"`);
   }
-  // The service object itself never shows a key, however it is printed.
-  const keyService = app.get(KeyService);
-  for (const shown of [JSON.stringify(keyService), inspect(keyService, { showHidden: true, depth: Infinity })]) {
-    bodies.push(shown);
+  // The service object itself never shows a key, however it is printed (the scan reads both forms too).
+  for (const shown of printedKeyService()) {
     assert(!PRIVATE_MEMBER_TEXT.test(shown), "KeyService shows a private member when printed");
   }
   jwks = body as JwkSetObject;
@@ -226,7 +238,7 @@ check("nestjs/token/issues-es256-jwt", async () => {
 check("nestjs/token/rejects-bad-client-secret", async () => {
   const reply = await requestToken("not-the-test-secret");
   assertEq(reply.status, 401, "status");
-  assertEq(reply.text, '{"error":"invalid_client"}', "body");
+  assert(reply.text === '{"error":"invalid_client"}', "body differs");
 });
 
 check("nestjs/guard/accepts-valid", async () => {
@@ -290,16 +302,34 @@ for (const { id, run } of checks) {
     console.log(`FAIL ${id}: ${describe(err)}`);
   }
 }
+
+// Not a check: a request for the secrets scan. There is no GET /token, and Nest's own 404 quotes
+// the URL, query and all; the exception filter must answer with a fixed body instead.
+const query = new URLSearchParams({ grant_type: "client_credentials", client_id: CLIENT_ID, client_secret: TEST_CLIENT_SECRET });
+await request(`/token?${query.toString()}`);
+const printed = printedKeyService();
 await app.close();
 
-// The secrets scan (the same rule as `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:'`), plus the
-// client secret, over the whole server log and every response body. Only counts are printed.
-const scanned = [...logger.lines, ...bodies];
-const leaks = scanned.filter((text) => PRIVATE_MEMBER_TEXT.test(text) || text.includes(TEST_CLIENT_SECRET)).length;
-console.log(`# secrets scan: ${leaks === 0 ? "clean" : `FOUND in ${leaks}`} (${logger.lines.length} log lines, ${bodies.length} bodies)`);
+// The secrets scan. The member rule is the same as `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:'`;
+// the value rule looks for the signing key's `d` and the client secret themselves; the token rule
+// looks for every issued access token in the log. Only counts are printed.
+const signingD = currentKey.d;
+if (typeof signingD !== "string" || signingD === "") throw new Error("verify: the generated signing key has no d");
+const secretValues = [signingD, TEST_CLIENT_SECRET];
+const everything = [...logger.lines, ...bodies, ...printed];
+const found = {
+  member: everything.filter((text) => PRIVATE_MEMBER_TEXT.test(text)).length,
+  value: everything.filter((text) => secretValues.some((secret) => text.includes(secret))).length,
+  token: logger.lines.filter((line) => issuedTokens.some((token) => line.includes(token))).length,
+};
+const leaks = found.member + found.value + found.token;
+const tokensSeen = issuedTokens.length > 0;
+const what = `${logger.lines.length} log lines, ${bodies.length} bodies, ${printed.length} printed forms, ${issuedTokens.length} issued tokens`;
+console.log(`# secrets scan: ${leaks === 0 ? "clean" : `FOUND member=${found.member} value=${found.value} token=${found.token}`} (${what})`);
+if (!tokensSeen) console.error("verify: no token was issued, so the token rule scanned nothing");
 if (leaks === 0 && process.env.VERIFY_LOG === "1") for (const line of logger.lines) console.error(line);
 
 const ran = checks.length;
 console.log(`POLYJOSE-VERIFY: ${passed}/${ran} PASS`);
 if (ran !== EXPECTED_CHECKS) console.error(`verify: ${ran} checks ran; CATALOG.md lists ${EXPECTED_CHECKS}`);
-process.exitCode = passed === ran && ran === EXPECTED_CHECKS && leaks === 0 ? 0 : 1;
+process.exitCode = passed === ran && ran === EXPECTED_CHECKS && leaks === 0 && tokensSeen ? 0 : 1;

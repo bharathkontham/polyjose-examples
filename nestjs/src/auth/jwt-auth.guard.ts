@@ -1,8 +1,9 @@
 // Protects a route with a Bearer access token (RFC 6750) validated by TokenService.
-import { type CanActivate, type ExecutionContext, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { type CanActivate, type ExecutionContext, Injectable, Logger } from "@nestjs/common";
 import { PolyjoseError, type JsonObject } from "@polyjose/node";
 
 import { TokenService } from "../polyjose/token.service.js";
+import { AppHttpException } from "../safe-exception.filter.js";
 
 /** The parts of the HTTP request and response the guard uses. */
 export interface AuthRequest {
@@ -32,7 +33,7 @@ export class JwtAuthGuard implements CanActivate {
     if (token === undefined) {
       // RFC 6750 §3.1: a request with no token gets the challenge without an error code.
       response.setHeader("WWW-Authenticate", "Bearer");
-      throw new UnauthorizedException({ message: "Unauthorized" });
+      throw new AppHttpException({ message: "Unauthorized" }, 401);
     }
     try {
       request.claims = (await this.tokens.verify(token)).claims;
@@ -44,7 +45,7 @@ export class JwtAuthGuard implements CanActivate {
       this.#logger.warn(`token rejected code=${code}`);
       // RFC 6750 §3.1: one opaque `invalid_token` for every invalid, expired or unknown token.
       response.setHeader("WWW-Authenticate", 'Bearer error="invalid_token"');
-      throw new UnauthorizedException({ error: "invalid_token" });
+      throw new AppHttpException({ error: "invalid_token" }, 401);
     }
   }
 }
