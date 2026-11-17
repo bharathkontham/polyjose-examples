@@ -38,7 +38,7 @@ import {
 } from "@polyjose/wasm";
 
 import type { EcdhCurve, EncryptKind, KeyKind } from "../matrix";
-import { CONTENT_ENC, KEY_MANAGEMENT_ALG } from "../shared";
+import { CONTENT_ENC, KEY_MANAGEMENT_ALG, PRIVATE_MEMBERS } from "../shared";
 import { RFC7515_A2_RSA_PRIVATE_JWK } from "./test-keys";
 
 export type { JsonObject, JwkObject, JwkSetObject };
@@ -58,6 +58,51 @@ export interface KeyPair {
 
 const utf8 = new TextEncoder();
 const fromUtf8 = new TextDecoder();
+
+/**
+ * The demo walk's key recorder (PLAYGROUND.md, "Secrets"). While one is on, every key this module
+ * makes adds the string values of its private and symmetric members (`d`, `p`, `q`, `dp`, `dq`,
+ * `qi`, `oth`, `k`; RFC 7518 §6.2.2, §6.3.2, §6.4.1; RFC 8037 §2) to it, so the walk's last step
+ * can look for the values themselves in its log, not only for the member names.
+ *
+ * The values stay inside the recorder: it answers with counts only, and never logs, returns or
+ * shows a value.
+ */
+export interface KeyRecorder {
+  /** How many values it holds. */
+  readonly size: number;
+  /** How many of `entries` contain any of the values. */
+  matches(entries: readonly string[]): number;
+  /** Switches recording off and drops the values. */
+  stop(): void;
+}
+
+let recording: Set<string> | null = null;
+
+/** Records `jwk`'s private member values when a recorder is on. */
+function record(jwk: Readonly<JwkObject>): void {
+  if (recording === null) return;
+  for (const member of PRIVATE_MEMBERS) {
+    const value = jwk[member];
+    if (typeof value === "string" && value !== "") recording.add(value);
+  }
+}
+
+/** Switches the recorder on; only the demo walk does this (lib/browser/demo.ts). */
+export function startKeyRecorder(): KeyRecorder {
+  const values = new Set<string>();
+  recording = values;
+  return {
+    get size() {
+      return values.size;
+    },
+    matches: (entries) => entries.filter((entry) => [...values].some((value) => entry.includes(value))).length,
+    stop: () => {
+      if (recording === values) recording = null;
+      values.clear();
+    },
+  };
+}
 
 /** The polyjose version the WebAssembly module reports. */
 export function polyjoseVersion(): Promise<string> {
@@ -80,6 +125,7 @@ export function publicJwk(jwk: JwkObject): Promise<JwkObject> {
  */
 export async function generateKey(alg: KeyAlg): Promise<KeyPair> {
   const generated = await jwkGenerateEc(CURVE[alg]);
+  record(generated);
   const kid = await thumbprint(generated);
   const privateKey: JwkObject = { ...generated, alg, use: alg === KEY_MANAGEMENT_ALG ? "enc" : "sig", kid };
   return { alg, kid, privateKey, publicKey: await publicJwk(privateKey) };
@@ -222,6 +268,7 @@ let sharedKeys = 0;
 
 /** An asymmetric key with `alg`, `use` and its RFC 7638 thumbprint as `kid` (RFC 7517 §4.2, §4.4, §4.5). */
 async function asymmetric(jwk: Readonly<JwkObject>, alg: string | undefined, use: "sig" | "enc", testKey: boolean): Promise<SoftwareKey> {
+  record(jwk);
   const labelled: JwkObject = alg === undefined ? { ...jwk } : { ...jwk, alg, use };
   const publicKey = await jwkToPublic(labelled);
   const kid = await thumbprint(publicKey);
@@ -242,6 +289,7 @@ async function asymmetric(jwk: Readonly<JwkObject>, alg: string | undefined, use
  * would publish a hash of the secret.
  */
 function shared(jwk: JwkObject, alg: string, enc?: string): SoftwareKey {
+  record(jwk);
   sharedKeys += 1;
   const kid = `secret-${sharedKeys}`;
   const k = typeof jwk.k === "string" ? jwk.k : "";

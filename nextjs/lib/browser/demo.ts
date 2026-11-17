@@ -3,7 +3,8 @@
 // The demo walk (`/?demo=1`, PLAYGROUND.md "Demo walk"): every cell of the support matrix and
 // every failure action, through the same functions the tabs' buttons call, one tap each. A ✓
 // cell must succeed; a failure action must end with its code. Then the Server tab's crossings
-// and refusals, the Keys tab, and the secrets check over the walk's own log. It prints
+// and refusals, the Keys tab, and the secrets check over the walk's own log (member names, and
+// the private values of every key the walk made). It prints
 //
 //   PLAYGROUND ok sign/jws/ES256
 //   PLAYGROUND bad encrypt/A128KW/A256GCM: expected success, got InvalidKey
@@ -22,7 +23,7 @@ import {
   failureDisabled,
   type EcdhCurve,
 } from "../matrix";
-import { SECRET_LINE } from "../shared";
+import { SECRET_LINE, joinLogEntries } from "../shared";
 import {
   asExpected,
   encryptFailureTap,
@@ -35,6 +36,7 @@ import {
   signTap,
   type Card,
 } from "./playground";
+import { startKeyRecorder, type KeyRecorder } from "./polyjose";
 import { TapLog, codeOf, type LogSink } from "./tap-log";
 
 /** A step's outcome: whether it was the expected one, and what was expected and seen. */
@@ -60,8 +62,11 @@ function curves(kind: string): readonly (EcdhCurve | undefined)[] {
   return kind === "ecdh" ? ECDH_CURVES : [undefined];
 }
 
-/** Every step, in order. `logged` is every line the walk has logged so far. */
-function walkSteps(logged: readonly string[]): WalkStep[] {
+/**
+ * Every step, in order. `logged` is every line the walk has logged so far; `recorder` holds the
+ * private member values of every key made during the walk (absent when only counting steps).
+ */
+function walkSteps(logged: readonly string[], recorder?: KeyRecorder): WalkStep[] {
   const steps: WalkStep[] = [];
   const add = (id: string, run: (log: TapLog) => Promise<Seen>) => steps.push({ id, run });
 
@@ -137,11 +142,18 @@ function walkSteps(logged: readonly string[]): WalkStep[] {
     add(`server/${action.id}`, async (log) => seen(await serverTap(log, action.id, action.label, "code" in action ? action.code : undefined)));
   }
 
-  // Secrets (PLAYGROUND.md, "Secrets"): no line the walk logged has a private or symmetric member.
+  // Secrets (PLAYGROUND.md, "Secrets"): no entry the walk logged (continuation parts joined back)
+  // has a private or symmetric member as JSON, or the value of a private member of any key the
+  // walk made. Counts only, never a line or a value.
   add("secrets/walk-log-has-no-private-member", async (log) => {
-    const matches = logged.filter((line) => SECRET_LINE.test(line)).length;
+    const entries = joinLogEntries(logged);
+    const members = entries.filter((entry) => SECRET_LINE.test(entry)).length;
+    const values = recorder ? recorder.matches(entries) : 0;
+    const recorded = recorder ? recorder.size : 0;
+    const matches = members + values;
     log.step("secrets", { lines: logged.length, matches });
-    return yes(matches === 0, "0 matches", `${matches} matches`);
+    if (recorded === 0) return yes(false, "0 matches", "no key values recorded");
+    return yes(matches === 0, "0 matches", `${members} member and ${values} value matches`);
   });
   return steps;
 }
@@ -161,18 +173,24 @@ export async function runWalk(out: (line: string) => void, log: LogSink, firstTa
     logged.push(line);
     log(line);
   };
-  const steps = walkSteps(logged);
+  // Only the walk switches the key recorder on, and it is off again when the walk ends.
+  const recorder = startKeyRecorder();
+  const steps = walkSteps(logged, recorder);
   out(`# polyjose playground demo walk: ${steps.length} steps, every one through the tabs' code`);
   let ok = 0;
-  for (const [index, step] of steps.entries()) {
-    let result: Seen;
-    try {
-      result = await step.run(new TapLog(firstTap + index, sink));
-    } catch (err) {
-      result = yes(false, "success", `unexpected ${codeOf(err)}`);
+  try {
+    for (const [index, step] of steps.entries()) {
+      let result: Seen;
+      try {
+        result = await step.run(new TapLog(firstTap + index, sink));
+      } catch (err) {
+        result = yes(false, "success", `unexpected ${codeOf(err)}`);
+      }
+      if (result.ok) ok += 1;
+      out(result.ok ? `PLAYGROUND ok ${step.id}` : `PLAYGROUND bad ${step.id}: expected ${result.expected}, got ${result.got}`);
     }
-    if (result.ok) ok += 1;
-    out(result.ok ? `PLAYGROUND ok ${step.id}` : `PLAYGROUND bad ${step.id}: expected ${result.expected}, got ${result.got}`);
+  } finally {
+    recorder.stop();
   }
   out(`POLYJOSE-PLAYGROUND: ${ok}/${steps.length} OK`);
   return { ok, walked: steps.length };

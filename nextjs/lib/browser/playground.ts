@@ -236,11 +236,14 @@ function otherAlg(row: SignRow | EncryptRow): string {
 export async function signFailureTap(log: TapLog, spec: SignSpec, action: FailureAction): Promise<SignResult> {
   const failure = action.id.replace(/^failure\./, "");
   const op: SignOp = action.id === "failure.sign.expired" ? "jwt" : spec.op;
+  // Expired signs a JWT whatever the operation (`exp` is a JWT claim, RFC 7519 §4.1.4); with
+  // "JWS compact" chosen, the card says so.
+  const notes = op === spec.op ? [action.id] : [action.id, "reason.expired-is-jwt"];
   log.step("input", { op: `${op}-sign-verify`, store: "software", alg: spec.row.alg, payload: "preset", failure });
   let token: string | undefined;
   let header: JsonObject | undefined;
   const card = (outcome: Card["outcome"]): Card =>
-    signCard({ ...spec, op }, log, { outcome, expected: action.code, ...(token ? { token } : {}), ...(header ? { header } : {}) }, [action.id]);
+    signCard({ ...spec, op }, log, { outcome, expected: action.code, ...(token ? { token } : {}), ...(header ? { header } : {}) }, notes);
   try {
     const key = await useKey(log, signRequest(spec.row), spec.key);
     const exp = action.id === "failure.sign.expired" ? now() - 3600 : undefined;

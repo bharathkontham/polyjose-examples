@@ -77,36 +77,42 @@ export default function Playground() {
 
   const checks = useCallback(async () => {
     setBusy(true);
-    setCheckLines("");
-    const firstTap = nextTap.current;
-    nextTap.current += CHECKS.length;
-    await runChecks(
-      (line) => {
-        console.log(line);
-        setCheckLines((text) => `${text}${line}\n`);
-      },
-      sink,
-      firstTap,
-    );
-    setBusy(false);
+    try {
+      setCheckLines("");
+      const firstTap = nextTap.current;
+      nextTap.current += CHECKS.length;
+      await runChecks(
+        (line) => {
+          console.log(line);
+          setCheckLines((text) => `${text}${line}\n`);
+        },
+        sink,
+        firstTap,
+      );
+    } finally {
+      setBusy(false);
+    }
   }, [sink]);
 
   const walk = useCallback(async () => {
     setBusy(true);
-    setWalkLines("");
     let text = "";
-    const firstTap = nextTap.current;
-    nextTap.current += walkLength();
-    await runWalk(
-      (line) => {
-        console.log(line);
-        text += `${line}\n`;
-      },
-      sink,
-      firstTap,
-    );
-    setWalkLines(text);
-    setBusy(false);
+    try {
+      setWalkLines("");
+      const firstTap = nextTap.current;
+      nextTap.current += walkLength();
+      await runWalk(
+        (line) => {
+          console.log(line);
+          text += `${line}\n`;
+        },
+        sink,
+        firstTap,
+      );
+    } finally {
+      setWalkLines(text);
+      setBusy(false);
+    }
   }, [sink]);
 
   useEffect(() => {

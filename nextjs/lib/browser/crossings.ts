@@ -20,7 +20,7 @@ import {
   type KeyAlg,
   type KeyPair,
 } from "./polyjose";
-import { TapLog, codeOf } from "./tap-log";
+import { StepFailed, TapLog, codeOf } from "./tap-log";
 
 export { TapLog, type LogSink } from "./tap-log";
 
@@ -50,11 +50,21 @@ async function post<T extends object>(log: TapLog, route: string, body: object):
   }
 }
 
-/** The server's public JWK Set, from GET /api/jwks. */
+/** A code from a server answer, if it looks like one (letters and digits); else `fallback`. */
+function answerCode(answer: unknown, fallback: string): string {
+  const code = typeof answer === "object" && answer !== null ? (answer as { code?: unknown }).code : undefined;
+  return typeof code === "string" && /^[A-Za-z0-9]{1,64}$/.test(code) ? code : fallback;
+}
+
+/** The server's public JWK Set, from GET /api/jwks; a refusal fails with the server's code. */
 export async function fetchJwks(log: TapLog): Promise<JwkSetObject> {
   log.step("request", { method: "GET", route: "/api/jwks" });
   const { value: jwks } = await log.run("GET /api/jwks", async () => {
     const response = await fetch("/api/jwks", { cache: "no-store" });
+    if (!response.ok) {
+      const answer: unknown = await response.json().catch(() => undefined);
+      throw new StepFailed(answerCode(answer, `HTTP${response.status}`));
+    }
     return (await response.json()) as JwkSetObject;
   });
   log.step("jwks", { keys: Array.isArray(jwks.keys) ? jwks.keys.length : 0 }, jwks);
