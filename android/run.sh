@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the app, runs every check of ../CATALOG.md on an Android device or emulator without a
 # tap, and prints the lines the app writes to logcat (tag POLYJOSE): one line per check, then
-# `POLYJOSE-VERIFY: P/R PASS`. Exits 0 only when every check passed.
+# `POLYJOSE-VERIFY: P/R PASS`. Exits 0 only when every check that ran passed and every check of
+# the catalog either ran or was skipped (CATALOG.md, "Output and pass rule").
 #
 #   ./run.sh                               against the published dev.polyjose:polyjose
 #                                          (the version pin is in build.gradle.kts)
@@ -27,7 +28,7 @@ cd "$(dirname "$0")"
 app_id=dev.polyjose.examples
 activity=$app_id/.app.MainActivity
 apk=build/outputs/apk/debug/polyjose-examples-android-debug.apk
-expected_checks=34 # the number of checks CATALOG.md lists for the pinned polyjose (0.2.0)
+expected_checks=34 # N: the number of Android checks CATALOG.md lists for the pinned polyjose (0.4.0)
 avd=${POLYJOSE_AVD:-polyjose-api34}
 port=${POLYJOSE_EMULATOR_PORT:-5580}
 timeout=${POLYJOSE_TIMEOUT:-300}
@@ -137,10 +138,23 @@ while [ -z "$result" ]; do
   sleep 1
 done
 
-# 6. Exit 0 only for P/R PASS with P = R = expected_checks (CATALOG.md, "Output and pass rule").
-if [[ "$result" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS ]]; then
-  [ "${BASH_REMATCH[2]}" = "$expected_checks" ] \
-    || echo "run.sh: ${BASH_REMATCH[2]} checks ran; CATALOG.md lists $expected_checks" >&2
-  [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ] && [ "${BASH_REMATCH[2]}" = "$expected_checks" ] && exit 0
+# 6. The pass rule (CATALOG.md, "Output and pass rule"): exit 0 only when P = R and R + S = N,
+# where P and R come from the final line, S is the number of SKIP lines and N is expected_checks.
+# The final line must also agree with the lines above it, so a skip can't hide a missing check.
+count_lines() { printf '%s\n' "$lines" | grep -c "^$1 " || true; }
+pass_lines=$(count_lines PASS)
+fail_lines=$(count_lines FAIL)
+skip_lines=$(count_lines SKIP)
+if [[ "$result" =~ ^POLYJOSE-VERIFY:\ ([0-9]+)/([0-9]+)\ PASS(\ \(([0-9]+)\ skipped\))?$ ]]; then
+  passed=${BASH_REMATCH[1]}
+  ran=${BASH_REMATCH[2]}
+  skipped=${BASH_REMATCH[4]:-0}
+  if [ "$passed" != "$pass_lines" ] || [ "$ran" != "$((pass_lines + fail_lines))" ] || [ "$skipped" != "$skip_lines" ]; then
+    echo "run.sh: the final line does not match the $pass_lines PASS, $fail_lines FAIL and $skip_lines SKIP lines" >&2
+    exit 1
+  fi
+  [ "$((ran + skip_lines))" = "$expected_checks" ] \
+    || echo "run.sh: $ran checks ran and $skip_lines were skipped; CATALOG.md lists $expected_checks" >&2
+  [ "$passed" = "$ran" ] && [ "$((ran + skip_lines))" = "$expected_checks" ] && exit 0
 fi
 exit 1

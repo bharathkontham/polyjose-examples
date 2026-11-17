@@ -9,13 +9,13 @@
 plugins {
     id("com.android.application") version "9.5.1"
     // AGP 9 compiles Kotlin with the Kotlin Gradle plugin on the build class path. This pins it to
-    // the Kotlin that dev.polyjose:polyjose 0.2.0 is built with, so the compiler can read the
+    // the Kotlin that dev.polyjose:polyjose 0.4.0 is built with, so the compiler can read the
     // kotlin-stdlib that the AAR brings.
     id("org.jetbrains.kotlin.android") version "2.4.21" apply false
 }
 
 /** The polyjose release these examples are written and checked against. The one version pin. */
-val polyjoseVersion = "0.2.0"
+val polyjoseVersion = "0.4.0"
 
 val polyjoseSrc: String? = providers.gradleProperty("polyjoseSrc").orNull
     ?: providers.environmentVariable("POLYJOSE_SRC").orNull
