@@ -1,0 +1,28 @@
+{
+  "name": "polyjose-examples-nestjs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "polyjose example app for NestJS: keys from config, a public JWKS, a token endpoint and a JWT guard, verified in-process with 10 checks.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "tsc -p tsconfig.build.json && node dist/main.js",
+    "verify": "tsc -p tsconfig.build.json && node dist/verify.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.3.2",
+    "@nestjs/core": "12.3.2",
+    "@nestjs/platform-express": "12.3.2",
+    "@polyjose/node": "0.4.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  }
+}
