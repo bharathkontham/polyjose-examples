@@ -3,10 +3,26 @@
 // CATALOG.md at the root of this repository, "Output and pass rule").
 import Foundation
 
-/// One check of the catalog: an `area/op/case` id and a body that throws when it fails.
+/// One check of the catalog: an `area/op/case` id, a body that throws when it fails, and the
+/// check's one skip condition: `skip` returns the SKIP reason when the device lacks what the check
+/// needs, and the body then doesn't run (CATALOG.md, "Output and pass rule").
 struct Check: Identifiable, Sendable {
     let id: String
+    let skip: @Sendable () -> String?
     let run: @Sendable () throws -> Void
+
+    init(id: String, skip: @escaping @Sendable () -> String? = { nil }, run: @escaping @Sendable () throws -> Void) {
+        self.id = id
+        self.skip = skip
+        self.run = run
+    }
+
+    /// What happened when a check ran.
+    enum Outcome: Sendable {
+        case pass
+        case fail(String)
+        case skip(String)
+    }
 }
 
 /// Thrown by a check whose expectation did not hold. `message` is the FAIL reason.
@@ -40,6 +56,19 @@ func expectSameString(_ actual: String?, _ expected: String?, _ what: String) th
 /// The check fails unless `rejection` (an error code, or `nil` for success) is `code`.
 func expectCode(_ rejection: String?, _ code: String) throws {
     if rejection != code { throw CheckFailure(message: "expected \(code), got \(rejection ?? "success")") }
+}
+
+/// Runs `body` with a platform key `tag`, then deletes whatever key is stored under it with
+/// `delete`, also when `body` fails, so no key is left behind. A failed delete after a passing
+/// body fails the check.
+func withKeyTag(_ tag: String, delete: (String) throws -> Void, _ body: (String) throws -> Void) throws {
+    do {
+        try body(tag)
+    } catch {
+        try? delete(tag)
+        throw error
+    }
+    try delete(tag)
 }
 
 /// The UTF-8 bytes of `text`.
