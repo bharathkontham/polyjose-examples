@@ -24,7 +24,7 @@ Each app is organised by developer task: one example file per task, which you ca
 | Use a platform key store ([checks](CATALOG.md#platform-key-checks)) | — | — | [ios](ios/README.md#use-a-platform-key-store) | [android](android/README.md#use-a-platform-key-store) |
 | Try every algorithm and key store in the playground | — | — | [PLAYGROUND.md](PLAYGROUND.md) | [PLAYGROUND.md](PLAYGROUND.md) |
 
-The decode and platform key store examples, and the playground, are not in the apps yet; their sections say so. [CATALOG.md](CATALOG.md#platform-key-checks) lists the platform-key checks, and [PLAYGROUND.md](PLAYGROUND.md) describes the playground.
+The platform key store examples are in the iOS and Android apps, one file per key store, and [CATALOG.md](CATALOG.md#platform-key-checks) lists the platform-key checks that run them. The decode example and the playground are not in the apps yet; the decode sections say so, and [PLAYGROUND.md](PLAYGROUND.md) describes the playground.
 
 Every example passes an explicit algorithm allow-list to verify and decrypt (RFC 8725 §3.1), never accepts `alg: none`, and never logs key material. Keys are generated at run time, except two RSA keys copied from the RFCs, which are labelled **test keys, never use in production**.
 
