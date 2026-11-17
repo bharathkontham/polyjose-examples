@@ -44,6 +44,12 @@ export const MESSAGES = {
  */
 export const PRIVATE_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
 
+/**
+ * A log line with a private or symmetric JWK member as JSON, the secrets check of PLAYGROUND.md
+ * ("Secrets"): `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` as `grep -E`.
+ */
+export const SECRET_LINE = /"(d|p|q|dp|dq|qi|oth|k)"\s*:/;
+
 /** True when `value` is an object with a private or symmetric JWK member. */
 export function hasPrivateMember(value: unknown): boolean {
   return (
@@ -67,16 +73,47 @@ export function publicOnly(value: unknown): unknown {
 /** A log field value: text, a number, a flag, or a JSON value that goes through `publicOnly`. */
 export type LogValue = string | number | boolean | object;
 
+/** Log lines are split into parts of at most this many characters (PLAYGROUND.md, "Log"). */
+export const LOG_PART = 800;
+
+/** A value as the log writes it: JSON after the `publicOnly` gate, or text with no spaces. */
+function logValue(value: LogValue): string {
+  if (typeof value === "object") return JSON.stringify(publicOnly(value));
+  return String(value).replace(/\s+/g, "_");
+}
+
 /**
- * One log line: `LOG <tap>.<step> <event> key=value …`. Objects are written as JSON after the
- * `publicOnly` gate. Errors are logged as `code=<Code>` only, never as a message.
+ * One log entry, as the lines PLAYGROUND.md ("Log") describes:
+ *
+ *   LOG <tap>.<step> <event> key=value …
+ *   LOG <tap>.<step> <event> <rest>          (header, jwk, claims, token, call, …)
+ *
+ * - Values have no spaces; objects are written as JSON after the `publicOnly` gate.
+ * - `rest` is the event's JSON (also through the gate) or token, as the rest of the line.
+ * - Errors are logged as `code=<Code>` only, never as a message.
+ * - An entry longer than LOG_PART characters is split: each further line repeats
+ *   `LOG <tap>.<step>` and has `+` in place of the event, and joining the parts gives it back.
  */
+export function logLines(
+  tap: number,
+  step: string,
+  event: string,
+  fields: Record<string, LogValue> = {},
+  rest?: LogValue,
+): string[] {
+  const words = [event];
+  if (rest !== undefined) words.push(typeof rest === "object" ? logValue(rest) : String(rest));
+  for (const [name, value] of Object.entries(fields)) words.push(`${name}=${logValue(value)}`);
+  const body = words.join(" ");
+  const prefix = `LOG ${tap}.${step}`;
+  const lines = [`${prefix} ${body.slice(0, LOG_PART)}`];
+  for (let at = LOG_PART; at < body.length; at += LOG_PART) lines.push(`${prefix} + ${body.slice(at, at + LOG_PART)}`);
+  return lines;
+}
+
+/** A log entry that fits on one line (a short, fixed set of fields). */
 export function logLine(tap: number, step: string, event: string, fields: Record<string, LogValue> = {}): string {
-  const parts = Object.entries(fields).map(([name, value]) => {
-    const text = typeof value === "object" ? JSON.stringify(publicOnly(value)) : String(value);
-    return `${name}=${text}`;
-  });
-  return [`LOG ${tap}.${step}`, event, ...parts].join(" ");
+  return logLines(tap, step, event, fields).join("\n");
 }
 
 /**

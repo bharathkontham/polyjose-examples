@@ -22,10 +22,11 @@ export async function POST(request: Request): Promise<Response> {
   return handlePost(request, "verify", async (body, log) => {
     const token = stringField(body, "token");
     const jwk = publicJwkField(body, "jwk");
-    log.step("input", { op: "jws-verify", allowedAlgs: ALLOWED_ALGS.join(",") });
-    const verified = await jwsVerifyCompact(token, jwk, { allowedAlgs: ALLOWED_ALGS });
+    log.step("input", { op: "jws-verify", store: "software", allowedAlgs: ALLOWED_ALGS.join(",") });
+    log.step("jwk", {}, jwk);
+    const verified = await log.call("jwsVerifyCompact", () => jwsVerifyCompact(token, jwk, { allowedAlgs: ALLOWED_ALGS }));
     const payload = new TextDecoder().decode(verified.payload);
-    log.step("verify", { result: "ok", alg: verified.alg, bytes: verified.payload.length });
+    log.step("verify", { alg: verified.alg, bytes: verified.payload.length }, "ok");
     return { alg: verified.alg, payload };
   });
 }

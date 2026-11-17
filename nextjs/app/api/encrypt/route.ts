@@ -12,15 +12,18 @@ export async function POST(request: Request): Promise<Response> {
   return handlePost(request, "encrypt", async (body, log) => {
     const jwk = publicJwkField(body, "jwk");
     const kid = typeof jwk.kid === "string" ? jwk.kid : undefined;
-    log.step("input", { op: "jwe-encrypt", alg: KEY_MANAGEMENT_ALG, enc: CONTENT_ENC, recipient: jwk });
-    const token = await jweEncryptCompact(new TextEncoder().encode(MESSAGES.serverEncrypts), {
-      enc: CONTENT_ENC,
-      // The recipient's `kid` in the protected header tells it which of its keys to use
-      // (RFC 7516 §4.1.6).
-      protectedHeader: kid === undefined ? undefined : { kid },
-      recipients: [{ alg: KEY_MANAGEMENT_ALG, key: jwk }],
-    });
-    log.step("token", { value: token });
+    log.step("input", { op: "jwe-encrypt", store: "software", alg: KEY_MANAGEMENT_ALG, enc: CONTENT_ENC });
+    log.step("jwk", {}, jwk);
+    const token = await log.call("jweEncryptCompact", () =>
+      jweEncryptCompact(new TextEncoder().encode(MESSAGES.serverEncrypts), {
+        enc: CONTENT_ENC,
+        // The recipient's `kid` in the protected header tells it which of its keys to use
+        // (RFC 7516 §4.1.6).
+        protectedHeader: kid === undefined ? undefined : { kid },
+        recipients: [{ alg: KEY_MANAGEMENT_ALG, key: jwk }],
+      }),
+    );
+    log.step("token", {}, token);
     return { token };
   });
 }

@@ -7,7 +7,7 @@
 // secret never leave polyjose.
 import { jweDecryptCompact } from "@polyjose/node";
 
-import { CONTENT_ENC, KEY_MANAGEMENT_ALG } from "../../../lib/shared";
+import { CONTENT_ENC, KEY_MANAGEMENT_ALG, MESSAGES } from "../../../lib/shared";
 import { RequestError, handlePost, stringField } from "../_server/http";
 import { serverKeys } from "../_server/keys";
 
@@ -20,15 +20,18 @@ export async function POST(request: Request): Promise<Response> {
   return handlePost(request, "decrypt", async (body, log) => {
     const token = stringField(body, "token");
     const { decryption } = await serverKeys();
-    log.step("input", { op: "jwe-decrypt", allowedAlgs: ALLOWED_ALGS.join(","), allowedEnc: ALLOWED_ENC.join(",") });
-    const decrypted = await jweDecryptCompact(token, decryption, { allowedAlgs: ALLOWED_ALGS, allowedEnc: ALLOWED_ENC });
+    log.step("input", { op: "jwe-decrypt", store: "software", allowedAlgs: ALLOWED_ALGS.join(","), allowedEnc: ALLOWED_ENC.join(",") });
+    const decrypted = await log.call("jweDecryptCompact", () =>
+      jweDecryptCompact(token, decryption, { allowedAlgs: ALLOWED_ALGS, allowedEnc: ALLOWED_ENC }),
+    );
     let plaintext: string;
     try {
       plaintext = new TextDecoder("utf-8", { fatal: true }).decode(decrypted.plaintext);
     } catch {
       throw new RequestError("BadRequest"); // this demo only exchanges text
     }
-    log.step("decrypt", { result: "ok", alg: String(decrypted.header.alg), enc: String(decrypted.header.enc), bytes: decrypted.plaintext.length });
+    const equal = plaintext === MESSAGES.browserEncrypts ? "equal" : "differs";
+    log.step("decrypt", { alg: String(decrypted.header.alg), enc: String(decrypted.header.enc), plaintext: equal }, "ok");
     // The plaintext is one of the app's fixed demo messages, so the page may show it.
     return { plaintext };
   });

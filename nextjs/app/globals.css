@@ -1,16 +1,14 @@
 :root {
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
+  --line: color-mix(in srgb, currentColor 25%, transparent);
+  --good: #1a7f37;
+  --bad: #cf222e;
 }
 body {
   margin: 0 auto;
   max-width: 60rem;
   padding: 1rem;
-}
-.buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
 }
 button {
   font: inherit;
@@ -20,4 +18,92 @@ pre {
   white-space: pre-wrap;
   word-break: break-all;
   font-size: 0.85rem;
+}
+code,
+.mono {
+  font-family: ui-monospace, monospace;
+}
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  margin: 0.6rem 0;
+}
+.buttons,
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.buttons.stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.choice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0;
+}
+.disabled,
+.reason {
+  opacity: 0.65;
+}
+.info {
+  padding: 0 0.45rem;
+  border-radius: 50%;
+  font-size: 0.8rem;
+}
+.explain {
+  display: block;
+  font-size: 0.9rem;
+  max-width: 50rem;
+}
+.note {
+  border-left: 4px solid var(--bad);
+  padding: 0.4rem 0.8rem;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--line);
+  margin: 1rem 0;
+}
+.tabs [aria-selected="true"] {
+  font-weight: bold;
+  border-bottom: 3px solid currentColor;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.6rem 1rem;
+  margin: 1rem 0;
+}
+.card.good {
+  border-left: 4px solid var(--good);
+}
+.card.bad {
+  border-left: 4px solid var(--bad);
+}
+.card h4 {
+  margin: 0.6rem 0 0.2rem;
+}
+.token {
+  max-height: 10rem;
+  overflow: auto;
+}
+.stores,
+.keys {
+  padding-left: 1.2rem;
+}
+.keys li {
+  border-bottom: 1px solid var(--line);
+  padding: 0.4rem 0;
 }

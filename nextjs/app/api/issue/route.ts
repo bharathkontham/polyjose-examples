@@ -15,9 +15,9 @@ export async function POST(request: Request): Promise<Response> {
     const now = Math.floor(Date.now() / 1000);
     // RFC 7519 §4.1: issuer, audience, subject, issued-at and expiry.
     const claims = { iss: ISSUER, aud: AUDIENCE, sub: DEMO_SUBJECT, iat: now, exp: now + TOKEN_LIFETIME };
-    log.step("input", { op: "jwt-sign", alg: SIGNING_ALG, kid: String(signing.kid) });
-    const token = await jwtSign(claims, signing, { alg: SIGNING_ALG });
-    log.step("token", { value: token });
+    log.step("input", { op: "jwt-sign", store: "software", alg: SIGNING_ALG, kid: String(signing.kid) });
+    const token = await log.call("jwtSign", () => jwtSign(claims, signing, { alg: SIGNING_ALG }));
+    log.step("token", {}, token);
     return { token };
   });
 }

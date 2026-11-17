@@ -1,27 +1,34 @@
 "use client";
 
 // Every polyjose operation the browser side of this app runs, on @polyjose/wasm. The checks,
-// the crossing buttons and the playground all call these functions and nothing else.
+// the crossings, the playground's tabs and the demo walk all call these functions and nothing
+// else.
 //
 // - @polyjose/wasm fetches its WebAssembly module on the first call, checked with Subresource
 //   Integrity, so nothing runs when this module is imported. It is only called from client
 //   components, in effects and event handlers, never while the server renders the page.
 // - Private keys are plain JWK objects in page memory (polyjose 0.4.0 has no browser key store
-//   and no non-extractable WebCrypto keys). They are never sent, shown or logged; only their
-//   public halves leave this module's callers.
+//   and no non-extractable WebCrypto keys), so any script on the page can read them. They are
+//   never sent, shown or logged; only their public halves leave this module's callers.
 // - Verify and decrypt take explicit allow-lists, never values read from the token
 //   (RFC 8725 §3.1). `none` is never accepted (RFC 8725 §3.2).
 import {
   PolyjoseError,
   base64urlEncode,
+  decodeProtectedHeaderUnverified,
   jweDecryptCompact,
   jweEncryptCompact,
   jwkGenerateEc,
+  jwkGenerateForAlg,
+  jwkGenerateOct,
+  jwkGenerateOkp,
   jwkThumbprint,
   jwkToPublic,
   jwksSelect,
   jwsSignCompact,
   jwsVerifyCompact,
+  jwtSign,
+  jwtVerify,
   jwtVerifyWithJwks,
   version,
   type EcCurve,
@@ -30,7 +37,9 @@ import {
   type JwkSetObject,
 } from "@polyjose/wasm";
 
+import type { EcdhCurve, EncryptKind, KeyKind } from "../matrix";
 import { CONTENT_ENC, KEY_MANAGEMENT_ALG } from "../shared";
+import { RFC7515_A2_RSA_PRIVATE_JWK } from "./test-keys";
 
 export type { JsonObject, JwkObject, JwkSetObject };
 
@@ -132,12 +141,7 @@ export function selectKey(jwks: JwkSetObject, alg: string): Promise<JwkObject> {
  * the protected header (RFC 7516 §4.1.6).
  */
 export function encrypt(plaintext: string, recipientPublicKey: JwkObject): Promise<string> {
-  const kid = recipientPublicKey.kid;
-  return jweEncryptCompact(utf8.encode(plaintext), {
-    enc: CONTENT_ENC,
-    protectedHeader: typeof kid === "string" ? { kid } : undefined,
-    recipients: [{ alg: KEY_MANAGEMENT_ALG, key: recipientPublicKey }],
-  });
+  return encryptJwe(plaintext, recipientPublicKey, KEY_MANAGEMENT_ALG, CONTENT_ENC);
 }
 
 /**
@@ -145,20 +149,20 @@ export function encrypt(plaintext: string, recipientPublicKey: JwkObject): Promi
  * ECDH-ES+A256KW and A256GCM. Any failure is DecryptionFailed (RFC 7516 §11.5).
  */
 export async function decrypt(token: string, key: KeyPair): Promise<string> {
-  const decrypted = await jweDecryptCompact(token, key.privateKey, {
-    allowedAlgs: [KEY_MANAGEMENT_ALG],
-    allowedEnc: [CONTENT_ENC],
-  });
-  return fromUtf8.decode(decrypted.plaintext);
+  return (await decryptJwe(token, key.privateKey, [KEY_MANAGEMENT_ALG], [CONTENT_ENC])).plaintext;
 }
 
-/** A failure action: changes one character in the middle of part `index` of a compact token. */
-export function tamper(token: string, index = 1): string {
+/**
+ * A failure action: changes one character in the middle of part `part` of a compact token
+ * (`A`, or `B` when it is `A`; PLAYGROUND.md, "Failure actions"). Returns the token and the
+ * index of the changed character in that part.
+ */
+export function tamper(token: string, part = 1): { token: string; index: number } {
   const parts = token.split(".");
-  const part = parts[index] ?? "";
-  const i = Math.floor(part.length / 2);
-  parts[index] = part.slice(0, i) + (part[i] === "A" ? "B" : "A") + part.slice(i + 1);
-  return parts.join(".");
+  const text = parts[part] ?? "";
+  const index = Math.floor(text.length / 2);
+  parts[part] = text.slice(0, index) + (text[index] === "A" ? "B" : "A") + text.slice(index + 1);
+  return { token: parts.join("."), index };
 }
 
 /**
@@ -177,4 +181,186 @@ export async function unsecuredJws(payload: string): Promise<string> {
 export function errorCode(err: unknown): string {
   if (err instanceof PolyjoseError) return err.code;
   return err instanceof Error ? err.name : typeof err;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The playground: any row of the support matrix (lib/matrix.ts).
+
+/**
+ * A software key of the playground, in page memory. `privateKey` is never shown, sent or
+ * logged. `publicKey` is null for a shared (oct) key, which is shown as `kty`, `alg`, `kid` and
+ * its length only (PLAYGROUND.md, "Secrets").
+ */
+export interface SoftwareKey {
+  /** The JWS `alg` or JWE key-management `alg` the key was made for. */
+  readonly alg: string;
+  readonly kty: string;
+  readonly crv?: string;
+  /** A `dir` key: the `enc` whose key size it has (RFC 7518 §4.5). */
+  readonly enc?: string;
+  /** A shared key: its length in bits. */
+  readonly bits?: number;
+  readonly kid: string;
+  /** The RFC 7515 Appendix A.2 test key (PLAYGROUND.md `key.test-rsa`). */
+  readonly testKey: boolean;
+  readonly privateKey: JwkObject;
+  readonly publicKey: JwkObject | null;
+}
+
+/** What key to make: the matrix row's kind and `alg`, and the curve or `enc` where it needs one. */
+export interface KeyRequest {
+  readonly kind: KeyKind | EncryptKind;
+  readonly alg: string;
+  readonly crv?: EcdhCurve | undefined;
+  readonly enc?: string | undefined;
+}
+
+/** The PBES2 password's length in bytes: random bytes, not something a person typed. */
+const PASSWORD_BYTES = 16;
+
+let sharedKeys = 0;
+
+/** An asymmetric key with `alg`, `use` and its RFC 7638 thumbprint as `kid` (RFC 7517 §4.2, §4.4, §4.5). */
+async function asymmetric(jwk: Readonly<JwkObject>, alg: string | undefined, use: "sig" | "enc", testKey: boolean): Promise<SoftwareKey> {
+  const labelled: JwkObject = alg === undefined ? { ...jwk } : { ...jwk, alg, use };
+  const publicKey = await jwkToPublic(labelled);
+  const kid = await thumbprint(publicKey);
+  const privateKey: JwkObject = { ...labelled, kid };
+  return {
+    alg: alg ?? jwk.kty,
+    kty: jwk.kty,
+    ...(typeof jwk.crv === "string" ? { crv: jwk.crv } : {}),
+    kid,
+    testKey,
+    privateKey,
+    publicKey: { ...publicKey, kid },
+  };
+}
+
+/**
+ * A shared key, labelled with a page-local `kid`. Its thumbprint isn't used as the `kid`: that
+ * would publish a hash of the secret.
+ */
+function shared(jwk: JwkObject, alg: string, enc?: string): SoftwareKey {
+  sharedKeys += 1;
+  const kid = `secret-${sharedKeys}`;
+  const k = typeof jwk.k === "string" ? jwk.k : "";
+  return {
+    alg,
+    kty: jwk.kty,
+    ...(enc === undefined ? {} : { enc }),
+    bits: Math.floor((k.length * 3) / 4) * 8, // base64url without padding (RFC 7515 §2)
+    kid,
+    testKey: false,
+    privateKey: { ...jwk, alg: enc ?? alg, kid },
+    publicKey: null,
+  };
+}
+
+/**
+ * A key for one matrix row, from the browser's CSPRNG (`crypto.getRandomValues`):
+ * - a JWS key: `jwkGenerateForAlg` (RFC 7518 §6, RFC 8037 §2, RFC 8812 §3.1);
+ * - an ECDH-ES key on a curve (RFC 7518 §4.6, §6.2; RFC 8037 §3.2);
+ * - an AES key-wrap or AES-GCM key-wrap key for its `alg` (RFC 7518 §4.4, §4.7), a `dir` key of
+ *   the `enc`'s size (RFC 7518 §4.5), or a PBES2 password of random bytes (RFC 7518 §4.8);
+ * - RSA: the RFC 7515 A.2 test key, because polyjose 0.4.0 can't generate RSA keys.
+ */
+export async function newSoftwareKey(request: KeyRequest): Promise<SoftwareKey> {
+  switch (request.kind) {
+    case "RSA":
+    case "rsa":
+      // The one RSA key serves every RSA row, so its JWK isn't bound to one `alg`.
+      return { ...(await asymmetric(RFC7515_A2_RSA_PRIVATE_JWK, undefined, "sig", true)), alg: request.alg };
+    case "EC":
+    case "OKP":
+      return asymmetric(await jwkGenerateForAlg(request.alg), request.alg, "sig", false);
+    case "ecdh": {
+      const crv = request.crv ?? "P-256";
+      const jwk = crv === "X25519" ? await jwkGenerateOkp("X25519") : await jwkGenerateEc(crv);
+      return asymmetric(jwk, request.alg, "enc", false);
+    }
+    case "oct":
+      return shared(await jwkGenerateForAlg(request.alg), request.alg);
+    case "dir": {
+      const enc = request.enc ?? CONTENT_ENC;
+      return shared(await jwkGenerateForAlg(enc), request.alg, enc);
+    }
+    case "pbes2":
+      return shared(await jwkGenerateOct(PASSWORD_BYTES), request.alg);
+  }
+}
+
+/** The key that verifies or encrypts to `key`: its public JWK, or the shared secret itself. */
+export function counterpart(key: SoftwareKey): JwkObject {
+  return key.publicKey ?? key.privateKey;
+}
+
+/** Signs `payload` (text) as a compact JWS (RFC 7515 §7.1) with `alg` and the key's `kid` (RFC 7515 §4.1.4). */
+export function signJws(payload: string, key: SoftwareKey, alg: string): Promise<string> {
+  return jwsSignCompact(utf8.encode(payload), key.privateKey, { protectedHeader: { alg, kid: key.kid } });
+}
+
+/** Signs a JWT (RFC 7519 §7.1). polyjose puts the key's `kid` in the header. */
+export function signJwt(claims: JsonObject, key: SoftwareKey, alg: string): Promise<string> {
+  return jwtSign(claims, key.privateKey, { alg });
+}
+
+/** A JWT's validation rules. `leeway` absent is polyjose's default (60 s). */
+export interface JwtKeyPolicy extends JwtPolicy {
+  readonly leeway?: number | undefined;
+}
+
+/**
+ * Validates a JWT with one key (RFC 7519 §7.2): `allowedAlgs` decides the algorithm, and `iss`,
+ * `aud` and `exp` must hold (RFC 7519 §4.1.1, §4.1.3, §4.1.4; RFC 8725 §3.1, §3.8, §3.9).
+ */
+export async function verifyJwt(token: string, key: JwkObject, policy: JwtKeyPolicy): Promise<JwtValidated> {
+  const validated = await jwtVerify(token, key, {
+    allowedAlgs: policy.allowedAlgs,
+    issuers: [policy.issuer],
+    audiences: [policy.audience],
+    leeway: policy.leeway,
+  });
+  return { claims: validated.claims, alg: validated.alg, kid: validated.kid ?? (typeof validated.header.kid === "string" ? validated.header.kid : undefined) };
+}
+
+/**
+ * Encrypts `plaintext` (text) to `recipient` as a compact JWE (RFC 7516 §5.1, §7.1). With
+ * `withKid` (the default), the recipient's `kid` goes into the protected header, so a recipient
+ * with several keys can pick one (RFC 7516 §4.1.6).
+ *
+ * polyjose 0.4.0 refuses a decryption key whose `kid` differs from the header's with
+ * KeyAlgorithmMismatch, before it decrypts. The playground's tabs encrypt to one known key and
+ * leave `kid` out, so a wrong key fails in decryption itself, with DecryptionFailed.
+ */
+export function encryptJwe(plaintext: string, recipient: JwkObject, alg: string, enc: string, withKid = true): Promise<string> {
+  const kid = recipient.kid;
+  return jweEncryptCompact(utf8.encode(plaintext), {
+    enc,
+    protectedHeader: withKid && typeof kid === "string" ? { kid } : undefined,
+    recipients: [{ alg, key: recipient }],
+  });
+}
+
+/** A decrypted JWE: the plaintext as text and its protected header. */
+export interface Decrypted {
+  readonly plaintext: string;
+  readonly header: JsonObject;
+}
+
+/**
+ * Decrypts a compact JWE (RFC 7516 §5.2) accepting only `allowedAlgs` and `allowedEnc`
+ * (RFC 8725 §3.1). Every decryption failure is DecryptionFailed (RFC 7516 §11.5).
+ */
+export async function decryptJwe(token: string, key: JwkObject, allowedAlgs: readonly string[], allowedEnc: readonly string[]): Promise<Decrypted> {
+  const decrypted = await jweDecryptCompact(token, key, { allowedAlgs, allowedEnc });
+  return { plaintext: fromUtf8.decode(decrypted.plaintext), header: decrypted.protectedHeader ?? decrypted.header };
+}
+
+/**
+ * A token's protected header, read without verifying anything (RFC 7515 §7.1, RFC 7516 §7.1),
+ * for the result card only. Nothing here decides anything with it.
+ */
+export function readProtectedHeader(token: string): Promise<JsonObject> {
+  return decodeProtectedHeaderUnverified(token);
 }

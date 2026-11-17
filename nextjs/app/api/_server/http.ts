@@ -5,7 +5,7 @@ import "server-only";
 // error message, key material or a decrypted secret.
 import { PolyjoseError, type JwkObject } from "@polyjose/node";
 
-import { hasPrivateMember, logLine, type LogValue } from "../../../lib/shared";
+import { hasPrivateMember, logLine, logLines, type LogValue } from "../../../lib/shared";
 import { ServerKeysError } from "./keys";
 
 /** The largest request body a route reads. The tokens and public JWKs here are far smaller. */
@@ -34,11 +34,23 @@ export class RequestLog {
   #step = 0;
   constructor(readonly tap: number) {}
 
-  step(event: string, fields?: Record<string, LogValue>): void {
+  /** One step; `rest` is a JSON value (through the publicOnly gate) or a token. */
+  step(event: string, fields?: Record<string, LogValue>, rest?: LogValue): void {
     this.#step += 1;
-    const line = logLine(this.tap, `s${this.#step}`, event, fields);
-    this.lines.push(line);
-    console.log(line);
+    for (const line of logLines(this.tap, `s${this.#step}`, event, fields, rest)) {
+      this.lines.push(line);
+      console.log(line);
+    }
+  }
+
+  /** Runs one polyjose call and logs `call <name> ms=<n>`, timed with a monotonic clock. */
+  async call<T>(name: string, run: () => Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await run();
+    } finally {
+      this.step("call", { ms: Math.round(performance.now() - start) }, name);
+    }
   }
 }
 
