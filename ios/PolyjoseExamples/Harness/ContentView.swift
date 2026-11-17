@@ -1,8 +1,37 @@
-// The one screen: the lines of the last run, the same ones the app prints to stdout, and a button
-// to run the checks again.
+// The app's five tabs. Checks, the tab the app opens on, is the catalog run: the lines of the last
+// run, the same ones the app prints to stdout, and a button to run the checks again. Sign, Encrypt,
+// Keys and Log are the playground (Playground/, and PLAYGROUND.md at the root of this repository).
 import SwiftUI
 
 struct ContentView: View {
+    @ObservedObject var runner: Runner
+    @ObservedObject var playground: Playground
+
+    enum Tab: Hashable { case checks, sign, encrypt, keys, log }
+    @State private var tab = Tab.checks
+
+    var body: some View {
+        TabView(selection: $tab) {
+            ChecksView(runner: runner)
+                .tabItem { Label("Checks", systemImage: "checklist") }
+                .tag(Tab.checks)
+            SignView(playground: playground)
+                .tabItem { Label("Sign", systemImage: "signature") }
+                .tag(Tab.sign)
+            EncryptView(playground: playground)
+                .tabItem { Label("Encrypt", systemImage: "lock") }
+                .tag(Tab.encrypt)
+            KeysView(playground: playground)
+                .tabItem { Label("Keys", systemImage: "key") }
+                .tag(Tab.keys)
+            LogView(log: playground.log)
+                .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
+                .tag(Tab.log)
+        }
+    }
+}
+
+struct ChecksView: View {
     @ObservedObject var runner: Runner
 
     var body: some View {
