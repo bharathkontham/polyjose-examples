@@ -3,11 +3,14 @@
 //
 //   PASS jws/sign-verify/es256
 //   FAIL jwt/verify/rejects-expired: expected TokenExpired, got InvalidClaim
+//   SKIP platform-key/strongbox/es256-sign: no StrongBox on this device
 //
-// and the run ends with `POLYJOSE-VERIFY: P/R PASS`. A FAIL line never shows key material,
-// plaintext or token contents.
+// and the run ends with `POLYJOSE-VERIFY: P/R PASS`, plus ` (S skipped)` when S checks skipped.
+// A FAIL line never shows key material, plaintext or token contents.
 package dev.polyjose.examples.app
 
+import android.os.Build
+import dev.polyjose.AndroidKeystoreKey
 import dev.polyjose.JwkSelector
 import dev.polyjose.JwtVerifyOptions
 import dev.polyjose.PolyjoseException
@@ -17,12 +20,21 @@ import dev.polyjose.examples.JWE_ENC
 import dev.polyjose.examples.RFC7638_3_1_JWK
 import dev.polyjose.examples.RFC7638_3_1_THUMBPRINT
 import dev.polyjose.examples.Signer
+import dev.polyjose.examples.createKeystoreKey
+import dev.polyjose.examples.createStrongBoxKey
 import dev.polyjose.examples.decrypt
+import dev.polyjose.examples.deleteKeystoreKey
 import dev.polyjose.examples.encryptTo
 import dev.polyjose.examples.generateEcKey
 import dev.polyjose.examples.issueToken
 import dev.polyjose.examples.jwsRejection
 import dev.polyjose.examples.jwtRejection
+import dev.polyjose.examples.keystoreDecrypt
+import dev.polyjose.examples.keystoreKeyLevel
+import dev.polyjose.examples.keystoreSignCompact
+import dev.polyjose.examples.keystoreSignJwt
+import dev.polyjose.examples.openKeystoreKey
+import dev.polyjose.examples.openStrongBoxKey
 import dev.polyjose.examples.pemRoundTrip
 import dev.polyjose.examples.publicJwks
 import dev.polyjose.examples.publicKeyOf
@@ -32,6 +44,9 @@ import dev.polyjose.examples.selectKey
 import dev.polyjose.examples.signCompact
 import dev.polyjose.examples.signGeneral
 import dev.polyjose.examples.signingKeyPair
+import dev.polyjose.examples.strongBoxDecrypt
+import dev.polyjose.examples.strongBoxKeyLevel
+import dev.polyjose.examples.strongBoxSignCompact
 import dev.polyjose.examples.thumbprint
 import dev.polyjose.examples.validateToken
 import dev.polyjose.examples.validateWithJwks
@@ -42,12 +57,19 @@ import dev.polyjose.jwkGenerateEc
 import dev.polyjose.jwkGenerateForAlg
 import dev.polyjose.jwkToPublic
 import org.json.JSONObject
+import java.security.KeyStore
 import java.util.Locale
+import java.util.UUID
 
 // --- helpers ----------------------------------------------------------------------------------
 
 /** A check that did not hold. Its message is the FAIL reason. */
 class CheckFailure(message: String) : Exception(message)
+
+/** A check that can't run on this device. Its message is the SKIP reason (CATALOG.md, "Skips when"). */
+class CheckSkipped(reason: String) : Exception(reason)
+
+fun skip(reason: String): Nothing = throw CheckSkipped(reason)
 
 fun expect(cond: Boolean, what: String) {
     if (!cond) throw CheckFailure(what)
@@ -280,6 +302,165 @@ val CHECKS: List<Check> = buildList {
     }
 }
 
+// --- platform-key checks (PlatformKeysKeystore.kt, PlatformKeysStrongBox.kt) -------------------
+
+/** The alias prefix of every key the checks create (CATALOG.md, "Platform-key checks"). */
+const val CHECK_ALIAS_PREFIX = "dev.polyjose.examples.check."
+
+/** What the platform-key checks need to know about this run and this device. */
+class PlatformKeyRun(
+    /** Unique per run: the aliases are `dev.polyjose.examples.check.<run>.<name>`. */
+    val run: String,
+    /** `PackageManager.FEATURE_STRONGBOX_KEYSTORE` (see hasStrongBox in PlatformKeysStrongBox.kt). */
+    val hasStrongBox: Boolean,
+)
+
+/**
+ * Runs [body] with a fresh alias, and deletes the key under it afterwards, also when the check
+ * fails or skips, so a re-run starts clean.
+ */
+fun PlatformKeyRun.withAlias(name: String, body: (String) -> Unit) {
+    val alias = "$CHECK_ALIAS_PREFIX$run.$name"
+    try {
+        body(alias)
+    } finally {
+        runCatching { deleteKeystoreKey(alias) }
+    }
+}
+
+/** Verifies a compact JWS in software with the key's public JWK, accepting only [alg] (RFC 7515 §5.2). */
+fun expectVerifies(token: String, key: AndroidKeystoreKey, alg: String) {
+    val verified = verifyCompact(token, key.publicJwk(), alg)
+    expectEq(verified.alg, alg, "verified alg")
+    expectBytes(verified.payload, PAYLOAD, "payload")
+}
+
+/** Encrypts to the key's public JWK in software (RFC 7516 §5.1) and decrypts with [decrypt] (RFC 7516 §5.2). */
+fun expectRoundTrip(key: AndroidKeystoreKey, decrypt: (String) -> ByteArray) {
+    val token = encryptTo(PAYLOAD, key.publicJwk())
+    expectBytes(decrypt(token), PAYLOAD, "plaintext")
+}
+
+/** Checks 35–44 of CATALOG.md, Android (`AndroidKeystoreKey`), in catalog order. */
+fun platformKeyChecks(env: PlatformKeyRun): List<Check> = buildList {
+    fun check(id: String, run: () -> Unit) = add(Check(id, run))
+    val strongBoxRequired = AndroidKeystoreKey.StrongBox.Required
+
+    // Android Keystore, the TEE (PlatformKeysKeystore.kt)
+    check("platform-key/keystore/es256-sign") {
+        env.withAlias("keystore-es256-sign") { alias ->
+            val key = createKeystoreKey(alias, "ES256")
+            expectVerifies(keystoreSignCompact(PAYLOAD, key, "ES256"), key, "ES256")
+        }
+    }
+
+    check("platform-key/keystore/es256-jwt") {
+        env.withAlias("keystore-es256-jwt") { alias ->
+            val key = createKeystoreKey(alias, "ES256")
+            val sent = claims()
+            val token = keystoreSignJwt(sent, key, "ES256")
+            val verified = validateToken(token, key.publicJwk(), "ES256", ISSUER, AUDIENCE)
+            expectEq(verified.alg, "ES256", "verified alg")
+            for (name in listOf("iss", "aud", "sub", "exp")) {
+                expectSame(member(verified.claims, name), member(sent, name), "claim $name")
+            }
+        }
+    }
+
+    check("platform-key/keystore/ps256-sign") {
+        env.withAlias("keystore-ps256-sign") { alias ->
+            val key = createKeystoreKey(alias, "PS256", keySize = 2048)
+            expectVerifies(keystoreSignCompact(PAYLOAD, key, "PS256"), key, "PS256")
+        }
+    }
+
+    check("platform-key/keystore/ecdh-es-a256kw-p-256") {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) skip("API 31") // ECDH-ES needs API 31
+        env.withAlias("keystore-ecdh-p-256") { alias ->
+            val key = createKeystoreKey(alias, "ECDH-ES")
+            expectRoundTrip(key) { keystoreDecrypt(it, key, listOf(JWE_ALG), listOf(JWE_ENC)).plaintext }
+        }
+    }
+
+    check("platform-key/keystore/open-again") {
+        env.withAlias("keystore-open-again") { alias ->
+            val created = createKeystoreKey(alias, "ES256")
+            val opened = openKeystoreKey(alias, "ES256")
+            expectEq(thumbprint(opened.publicJwk()), thumbprint(created.publicJwk()), "thumbprint")
+            expectVerifies(keystoreSignCompact(PAYLOAD, opened, "ES256"), created, "ES256")
+        }
+    }
+
+    check("platform-key/keystore/delete-then-open") {
+        env.withAlias("keystore-delete-then-open") { alias ->
+            createKeystoreKey(alias, "ES256")
+            deleteKeystoreKey(alias)
+            expectCode(rejectionCode { openKeystoreKey(alias, "ES256") }, "KeyNotFound")
+        }
+    }
+
+    // StrongBox (PlatformKeysStrongBox.kt)
+    check("platform-key/strongbox/es256-sign") {
+        if (!env.hasStrongBox) skip("no StrongBox on this device")
+        env.withAlias("strongbox-es256-sign") { alias ->
+            val key = createStrongBoxKey(alias, "ES256", strongBoxRequired)
+            expectEq(strongBoxKeyLevel(key), AndroidKeystoreKey.SecurityLevel.StrongBox, "securityLevel")
+            expectVerifies(strongBoxSignCompact(PAYLOAD, key, "ES256"), key, "ES256")
+        }
+    }
+
+    check("platform-key/strongbox/ecdh-es-a256kw-p-256") {
+        if (!env.hasStrongBox) skip("no StrongBox on this device")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) skip("API 31") // ECDH-ES needs API 31
+        env.withAlias("strongbox-ecdh-p-256") { alias ->
+            val key = createStrongBoxKey(alias, "ECDH-ES", strongBoxRequired)
+            expectEq(strongBoxKeyLevel(key), AndroidKeystoreKey.SecurityLevel.StrongBox, "securityLevel")
+            expectRoundTrip(key) { strongBoxDecrypt(it, key, listOf(JWE_ALG), listOf(JWE_ENC)).plaintext }
+        }
+    }
+
+    check("platform-key/strongbox/required-when-absent") {
+        if (env.hasStrongBox) skip("StrongBox present")
+        env.withAlias("strongbox-required-when-absent") { alias ->
+            expectCode(rejectionCode { createStrongBoxKey(alias, "ES256", strongBoxRequired) }, "PlatformKeyFailed")
+            expectCode(rejectionCode { openStrongBoxKey(alias, "ES256") }, "KeyNotFound")
+        }
+    }
+
+    check("platform-key/strongbox/preferred-reports-level") {
+        env.withAlias("strongbox-preferred") { alias ->
+            val key = createStrongBoxKey(alias, "ES256", AndroidKeystoreKey.StrongBox.Preferred)
+            expectVerifies(strongBoxSignCompact(PAYLOAD, key, "ES256"), key, "ES256")
+            val level = strongBoxKeyLevel(key)
+            if (env.hasStrongBox) {
+                // Below API 31 KeyInfo can't name StrongBox: it says SecureHardware.
+                val inStrongBox = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    AndroidKeystoreKey.SecurityLevel.StrongBox
+                } else {
+                    AndroidKeystoreKey.SecurityLevel.SecureHardware
+                }
+                expectEq(level, inStrongBox, "securityLevel")
+            } else {
+                // The fallback: wherever the platform reports (TrustedEnvironment on a device; an
+                // emulator reports Software), never StrongBox, and the key is really there.
+                expect(level != AndroidKeystoreKey.SecurityLevel.StrongBox, "securityLevel is StrongBox without StrongBox")
+                expectEq(thumbprint(openStrongBoxKey(alias, "ES256").publicJwk()), thumbprint(key.publicJwk()), "thumbprint")
+            }
+        }
+    }
+}
+
+/**
+ * Deletes every key left under [CHECK_ALIAS_PREFIX], for example by a run that was killed half
+ * way. Reads aliases only. Returns how many it deleted.
+ */
+fun deleteLeftoverCheckKeys(): Int {
+    val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    val leftovers = store.aliases().toList().filter { it.startsWith(CHECK_ALIAS_PREFIX) }
+    leftovers.forEach { deleteKeystoreKey(it) }
+    return leftovers.size
+}
+
 // --- run --------------------------------------------------------------------------------------
 
 /**
@@ -294,21 +475,32 @@ fun describe(e: Throwable): String = when (e) {
 
 /**
  * Runs every check, passing each line to [emit]: the [info] lines first (each starting with
- * `# `), then one line per check, then the result line. Returns true when every check passed.
+ * `# `), then one line per check, then the result line. [hasStrongBox] is the device's
+ * `FEATURE_STRONGBOX_KEYSTORE`. Returns true when every check that ran passed.
  */
-fun runCatalog(info: List<String>, emit: (String) -> Unit): Boolean {
+fun runCatalog(info: List<String>, hasStrongBox: Boolean, emit: (String) -> Unit): Boolean {
     info.forEach { emit("# $it") }
+    val env = PlatformKeyRun(run = UUID.randomUUID().toString().substring(0, 8), hasStrongBox = hasStrongBox)
+    val checks = CHECKS + platformKeyChecks(env)
     var passed = 0
-    for (c in CHECKS) {
+    var failed = 0
+    var skipped = 0
+    for (c in checks) {
         try {
             c.run()
             passed += 1
             emit("PASS ${c.id}")
+        } catch (e: CheckSkipped) {
+            skipped += 1
+            emit("SKIP ${c.id}: ${e.message}")
         } catch (e: Throwable) {
+            failed += 1
             emit("FAIL ${c.id}: ${describe(e)}")
         }
     }
-    val ran = CHECKS.size
-    emit("POLYJOSE-VERIFY: $passed/$ran PASS")
+    // Each check deletes its own key; this also clears keys of an earlier run that was killed.
+    runCatching { deleteLeftoverCheckKeys() }
+    val ran = passed + failed
+    emit("POLYJOSE-VERIFY: $passed/$ran PASS" + if (skipped > 0) " ($skipped skipped)" else "")
     return passed == ran && ran > 0
 }

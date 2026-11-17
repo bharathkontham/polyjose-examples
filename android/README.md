@@ -15,10 +15,10 @@ Needs a JDK, 17 or later (`JAVA_HOME`), and the Android SDK with platform-tools 
 [`run.sh`](run.sh) builds the debug APK with the Gradle wrapper, installs it, starts the activity with the `autorun` extra, and reads the app's lines from `adb logcat -s POLYJOSE` until the result line:
 
 ```
-POLYJOSE-VERIFY: 34/34 PASS
+POLYJOSE-VERIFY: 42/42 PASS (2 skipped)
 ```
 
-It exits 0 only when every check that ran passed and every check of the catalog either ran or was skipped. After `POLYJOSE_TIMEOUT` seconds (default 300) without a result line it prints `POLYJOSE-VERIFY: 0/34 PASS (timeout)` and exits 1. The output format and the pass rule are in [CATALOG.md](../CATALOG.md#output-and-pass-rule).
+That is the result on the `polyjose-api34` emulator (Android 14, API 34, no StrongBox): the two StrongBox checks that need StrongBox skip. On a device with StrongBox and API 31 or later it is `43/43 PASS (1 skipped)`. It exits 0 only when every check that ran passed and every check of the catalog either ran or was skipped. After `POLYJOSE_TIMEOUT` seconds (default 300) without a result line it prints `POLYJOSE-VERIFY: 0/44 PASS (timeout)` and exits 1. The output format and the pass rule are in [CATALOG.md](../CATALOG.md#output-and-pass-rule).
 
 Which device `run.sh` uses:
 
@@ -84,9 +84,16 @@ Checks: `jwk/generate/ec-p-256`, `jwk/thumbprint/rfc7638`, `jwk/pem/round-trip`,
 
 Not in this app yet. polyjose 0.4.0 has the unverified decode functions; this example arrives in a later update of this repository.
 
-### Use a platform key store
+### Use a platform key store (platform keys)
 
-Not in this app yet. polyjose 0.4.0 has `AndroidKeystoreKey`, for keys held in the Android Keystore (the TEE or StrongBox); this example and its ten checks (listed in [CATALOG.md](../CATALOG.md#platform-key-checks)) arrive in a later update of this repository. [PLAYGROUND.md](../PLAYGROUND.md) describes the playground that will try each key store by hand.
+`AndroidKeystoreKey` keeps the private key in the Android Keystore: polyjose asks it for one signature, ECDH shared secret or RSA-OAEP-256 decryption at a time, and does every JOSE step itself. Verifying and encrypting need only the key's `publicJwk()`, so they run in software. Each file below has the same small functions: create, open, sign a JWS, sign a JWT, decrypt a compact JWE, delete, and where the key lives (`securityLevel`, as the platform reports it). Call them off the main thread.
+
+- [`PlatformKeysKeystore.kt`](src/main/kotlin/dev/polyjose/examples/PlatformKeysKeystore.kt): the Android Keystore's trusted execution environment (TEE), `StrongBox.Off`. ES256, ES384, ES512, RS256 to PS512 from API 23; ECDH-ES from API 31; RSA-OAEP-256 from API 34. On an emulator the keys are software, whatever it reports.
+- [`PlatformKeysStrongBox.kt`](src/main/kotlin/dev/polyjose/examples/PlatformKeysStrongBox.kt): StrongBox, a separate hardware secure element, with `StrongBox.Required` (StrongBox or nothing: `PlatformKeyFailed` without it, and no key is left behind) or `StrongBox.Preferred` (else the TEE, and `securityLevel` says which). It shows the `PackageManager.FEATURE_STRONGBOX_KEYSTORE` check. ES256, RS256 and PS256 at 2048 bits from API 28; ECDH-ES on P-256 from API 31; RSA-OAEP-256 at 2048 bits from API 34, not verified on a StrongBox device.
+
+Checks: `platform-key/keystore/*`, `platform-key/strongbox/*` ([CATALOG.md](../CATALOG.md#android-androidkeystorekey)). They need no user authentication, use the aliases `dev.polyjose.examples.check.<run>.…`, and delete their keys by the end of the run, also when a check fails.
+
+Ran on: the `polyjose-api34` emulator (Android 14, API 34, no StrongBox), `42/42 PASS (2 skipped)`: `platform-key/strongbox/es256-sign` and `platform-key/strongbox/ecdh-es-a256kw-p-256` skip with `no StrongBox on this device`. There, a `StrongBox.Preferred` key reports `Software`. That proves the code paths, not the hardware: only a run on a device shows the TEE or StrongBox. [PLAYGROUND.md](../PLAYGROUND.md) describes the playground that will try each key store by hand.
 
 ## Test keys
 
