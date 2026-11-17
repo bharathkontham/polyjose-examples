@@ -111,6 +111,27 @@ export function logLines(
   return lines;
 }
 
+/**
+ * The log entries of `lines`: each `LOG <tap>.<step> + …` continuation part joined back onto the
+ * entry before it, as `logLines` split it. The secrets scans read entries, so a value split
+ * across two parts is still found. (run.mjs has the same function for the captured output.)
+ */
+export function joinLogEntries(lines: readonly string[]): string[] {
+  const entries: string[] = [];
+  let prefix: string | undefined;
+  for (const line of lines) {
+    const part = /^(LOG \S+) \+ (.*)$/.exec(line);
+    const last = entries.length - 1;
+    if (part && part[1] === prefix && last >= 0) {
+      entries[last] = `${entries[last] ?? ""}${part[2] ?? ""}`;
+      continue;
+    }
+    entries.push(line);
+    prefix = /^(LOG \S+) /.exec(line)?.[1];
+  }
+  return entries;
+}
+
 /** A log entry that fits on one line (a short, fixed set of fields). */
 export function logLine(tap: number, step: string, event: string, fields: Record<string, LogValue> = {}): string {
   return logLines(tap, step, event, fields).join("\n");

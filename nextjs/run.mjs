@@ -3,7 +3,17 @@
 // demo walk's information line, any step that didn't give its expected outcome, and
 // `POLYJOSE-PLAYGROUND: N/M OK`. Exits 0 only when P = R = EXPECTED_CHECKS,
 // N = M = EXPECTED_WALK_STEPS, both result lines agree with the lines above them, and the
-// secrets grep over the browser console and the server output finds nothing.
+// secrets scan over the browser console and the server output finds nothing.
+//
+// The secrets scan (PLAYGROUND.md, "Secrets") reads every log entry, with its continuation parts
+// joined back, and looks for
+// - a private or symmetric JWK member as JSON (`"d":`, `"k":`, …) or an unhandled PolyjoseError;
+// - the `d` of the server's two keys: this script generates them and gives them to `next start`
+//   as POLYJOSE_SERVER_JWKS, so the server runs on configured keys;
+// - the private values (`d`, `p`, `q`, `dp`, `dq`, `qi`) of the RSA test key in
+//   lib/browser/test-keys.ts.
+// The values of the keys the page makes are the demo walk's last step (lib/browser/demo.ts). Only
+// counts are printed, never a line or a value.
 //
 // Needs Node.js 22.12 or later, the installed packages (`npm ci --ignore-scripts`), and Google
 // Chrome or Chromium.
@@ -27,6 +37,8 @@ import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { jwkGenerateEc } from "@polyjose/node";
+
 /** The number of `nextjs/*` checks the page runs (lib/browser/checks.ts). */
 const EXPECTED_CHECKS = 8;
 
@@ -43,6 +55,9 @@ const EXPECTED_WALK_STEPS = 330;
 
 /** A private or symmetric JWK member as JSON (`"d":`), or an unhandled polyjose error. */
 const SECRETS = /"(d|p|q|dp|dq|qi|oth|k)"\s*:|PolyjoseError/;
+
+/** The private members of the RSA test key whose values the scan looks for. */
+const RSA_PRIVATE_MEMBERS = ["d", "p", "q", "dp", "dq", "qi"];
 
 /** The lines the page prints: the checks' (CATALOG.md, "Output and pass rule"), then the walk's. */
 const PAGE_LINE = /^(# |PASS |FAIL |SKIP |POLYJOSE-VERIFY: |PLAYGROUND (ok|bad) |POLYJOSE-PLAYGROUND: )/;
@@ -90,6 +105,25 @@ if (!chrome) {
 
 const next = path.join(here, "node_modules", "next", "dist", "bin", "next");
 const env = { ...process.env, NEXT_TELEMETRY_DISABLED: "1" };
+delete env.POLYJOSE_SERVER_JWKS; // the server gets this run's keys below, and the build none
+
+// The server's keys for this run: two new P-256 keys (RFC 7518 §6.2), as a private JWK Set
+// (RFC 7517 §5) for POLYJOSE_SERVER_JWKS. They are test keys for this run only.
+const serverJwks = {
+  keys: [
+    { ...(await jwkGenerateEc("P-256")), alg: "ES256" },
+    { ...(await jwkGenerateEc("P-256")), alg: "ECDH-ES+A256KW" },
+  ],
+};
+const serverSecrets = serverJwks.keys.map((key) => key.d);
+
+// The RSA test key's private values, read from the page's source.
+const testKeySource = readFileSync(path.join(here, "lib", "browser", "test-keys.ts"), "utf8");
+const rsaSecrets = RSA_PRIVATE_MEMBERS.map((member) => new RegExp(`"${member}": "([A-Za-z0-9_-]+)"`).exec(testKeySource)?.[1]);
+if ([...serverSecrets, ...rsaSecrets].some((value) => typeof value !== "string" || value.length < 16)) {
+  say("could not read the server keys' d or the RSA test key's private values");
+  process.exit(2);
+}
 
 // 1. Build. Its progress goes to stderr; stdout carries only the page's lines.
 const build = spawnSync(process.execPath, [next, "build"], { cwd: here, env, stdio: ["ignore", 2, 2] });
@@ -193,7 +227,10 @@ try {
   // 3. Start the server and wait until it answers.
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
-  server = start(process.execPath, [next, "start", "-H", "127.0.0.1", "-p", String(port)], { cwd: here, env });
+  server = start(process.execPath, [next, "start", "-H", "127.0.0.1", "-p", String(port)], {
+    cwd: here,
+    env: { ...env, POLYJOSE_SERVER_JWKS: JSON.stringify(serverJwks) },
+  });
   let up = false;
   while (!up && !server.exited && Date.now() < deadline) {
     try {
@@ -240,23 +277,55 @@ if (!final || !walkFinal) {
   process.exit(1);
 }
 
-// 5. The secrets grep (PRD "Secrets"): never a private member, and never an unhandled polyjose
-//    error, in the browser console or the server output. Only the count is printed, never the
-//    lines themselves.
-const leaks = [
-  ["the browser console", browser.output],
-  ["the server output", server.output],
-].map(([where, text]) => [where, text.split("\n").filter((line) => SECRETS.test(line)).length]);
-let clean = true;
-for (const [where, count] of leaks) {
-  if (count > 0) {
-    clean = false;
-    say(`the secrets grep matched ${count} line(s) in ${where}`);
-  }
+// 5. The secrets scan (PLAYGROUND.md, "Secrets"): never a private member, a private value of the
+//    server's keys or the RSA test key, or an unhandled polyjose error, in the browser console or
+//    the server output. Only counts are printed, never the lines or the values.
+
+/** A captured output as log entries: Chrome's console lines as their message, joined parts. */
+function entries(text, fromChrome) {
+  const lines = text.split("\n").map((line) => (fromChrome ? (line.match(/:CONSOLE[^\]]*\] "(.*)", source: /)?.[1] ?? line) : line));
+  return joinLogEntries(lines);
 }
-const logCount = (text) => text.split("\n").filter((line) => / "LOG \d|^LOG \d/.test(line)).length;
-say(`the secrets grep read ${logCount(browser.output)} LOG lines from the browser console and ${logCount(server.output)} from the server`);
-if (clean) say("the secrets grep over the browser console and the server output found nothing");
+
+/** lib/shared.ts `joinLogEntries`: each `LOG <tap>.<step> + …` part joined back onto its entry. */
+function joinLogEntries(lines) {
+  const joined = [];
+  let prefix;
+  for (const line of lines) {
+    const part = /^(LOG \S+) \+ (.*)$/.exec(line);
+    if (part && part[1] === prefix && joined.length > 0) {
+      joined[joined.length - 1] += part[2];
+      continue;
+    }
+    joined.push(line);
+    prefix = /^(LOG \S+) /.exec(line)?.[1];
+  }
+  return joined;
+}
+
+const outputs = [
+  ["the browser console", entries(browser.output, true)],
+  ["the server output", entries(server.output, false)],
+];
+let clean = true;
+for (const [where, text] of outputs) {
+  const found = {
+    member: text.filter((entry) => SECRETS.test(entry)).length,
+    server: text.filter((entry) => serverSecrets.some((value) => entry.includes(value))).length,
+    rsa: text.filter((entry) => rsaSecrets.some((value) => entry.includes(value))).length,
+  };
+  const logEntries = text.filter((entry) => /^LOG \d/.test(entry)).length;
+  const matched = found.member + found.server + found.rsa;
+  if (matched > 0) clean = false;
+  say(`the secrets scan read ${text.length} entries (${logEntries} LOG) from ${where}: member ${found.member}, server-key value ${found.server}, RSA test-key value ${found.rsa}`);
+}
+// The server must have used the keys above, or their values were never there to find.
+const configured = /^LOG 0\.1 server-keys source=POLYJOSE_SERVER_JWKS /m.test(server.output);
+if (!configured) {
+  clean = false;
+  say("the server didn't log server-keys source=POLYJOSE_SERVER_JWKS");
+}
+say(clean ? `the secrets scan found nothing (${serverSecrets.length} server-key values, ${rsaSecrets.length} RSA test-key values)` : "the secrets scan found something; see the counts above");
 
 // Exit 0 only for P/R PASS with P = R = EXPECTED_CHECKS (CATALOG.md, "Output and pass rule"),
 // and N/M OK with N = M = EXPECTED_WALK_STEPS (PLAYGROUND.md, "Demo walk"). Each result line

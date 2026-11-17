@@ -10,8 +10,8 @@
 // The demo takes it from the request to show the crossing; the allow-list still decides.
 import { jwsVerifyCompact } from "@polyjose/node";
 
-import { SIGNING_ALG } from "../../../lib/shared";
-import { handlePost, publicJwkField, stringField } from "../_server/http";
+import { MESSAGES, SIGNING_ALG } from "../../../lib/shared";
+import { RequestError, handlePost, jwkSummary, publicJwkField, stringField } from "../_server/http";
 
 export const runtime = "nodejs";
 
@@ -23,10 +23,14 @@ export async function POST(request: Request): Promise<Response> {
     const token = stringField(body, "token");
     const jwk = publicJwkField(body, "jwk");
     log.step("input", { op: "jws-verify", store: "software", allowedAlgs: ALLOWED_ALGS.join(",") });
-    log.step("jwk", {}, jwk);
+    log.step("jwk", {}, jwkSummary(jwk));
     const verified = await log.call("jwsVerifyCompact", () => jwsVerifyCompact(token, jwk, { allowedAlgs: ALLOWED_ALGS }));
     const payload = new TextDecoder().decode(verified.payload);
-    log.step("verify", { alg: verified.alg, bytes: verified.payload.length }, "ok");
-    return { alg: verified.alg, payload };
+    const equal = payload === MESSAGES.browserSigns ? "equal" : "differs";
+    log.step("verify", { alg: verified.alg, bytes: verified.payload.length, payload: equal }, "ok");
+    // Only the app's fixed demo message is answered: any other payload is refused, so the route
+    // never echoes text it verified.
+    if (payload !== MESSAGES.browserSigns) throw new RequestError("BadRequest");
+    return { alg: verified.alg, payload: MESSAGES.browserSigns };
   });
 }

@@ -31,8 +31,12 @@ export async function POST(request: Request): Promise<Response> {
       throw new RequestError("BadRequest"); // this demo only exchanges text
     }
     const equal = plaintext === MESSAGES.browserEncrypts ? "equal" : "differs";
-    log.step("decrypt", { alg: String(decrypted.header.alg), enc: String(decrypted.header.enc), plaintext: equal }, "ok");
-    // The plaintext is one of the app's fixed demo messages, so the page may show it.
-    return { plaintext };
+    // A compact JWE has only a protected header (RFC 7516 §7.1).
+    const header = decrypted.protectedHeader ?? {};
+    log.step("decrypt", { alg: String(header.alg), enc: String(header.enc), plaintext: equal }, "ok");
+    // Only the app's fixed demo message is answered: any other plaintext is refused, so the route
+    // never echoes text it decrypted.
+    if (plaintext !== MESSAGES.browserEncrypts) throw new RequestError("BadRequest");
+    return { plaintext: MESSAGES.browserEncrypts };
   });
 }

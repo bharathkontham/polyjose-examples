@@ -32,7 +32,7 @@ POLYJOSE-PLAYGROUND: 330/330 OK
 
 - `?verify=1` runs the 8 checks below. `?demo=1` runs the [demo walk](#the-demo-walk). Each also works on its own.
 - Of the walk's lines, only a step that didn't give its expected outcome is printed (`PLAYGROUND bad <step>: expected <Code>, got <Code>`); the page and the console have every step.
-- It exits 0 only when all 8 checks pass, all 330 walk steps give their expected outcome, each result line agrees with the lines above it, and the secrets grep is empty: no private or symmetric JWK member (`"d":`, `"k":`, …) and no unhandled polyjose error in the browser console or the server output.
+- It exits 0 only when all 8 checks pass, all 330 walk steps give their expected outcome, each result line agrees with the lines above it, and the secrets scan of the browser console and the server output finds nothing. The scan reads each log entry with its continuation lines joined back, and looks for a private or symmetric JWK member as JSON (`"d":`, `"k":`, …), an unhandled polyjose error, and the key values themselves: the `d` of the server's two keys (the script generates them and starts the server with them as `POLYJOSE_SERVER_JWKS`) and the private values of the RSA test key. It prints counts only.
 - It also checks that the `.wasm` file Next.js emitted is the package's file, byte for byte.
 - `CHROME` names the Chrome binary. `RUN_TIMEOUT` (seconds, default 120) bounds the run; when it runs out, the result lines are `POLYJOSE-VERIFY: 0/8 PASS (timeout)` and `POLYJOSE-PLAYGROUND: 0/330 OK (timeout)`, and the exit is 1.
 
@@ -109,7 +109,7 @@ LOG 7.8 verify ok alg=ES256 kid=… ms=1
 - every Sign row as a JWS and as a JWT, and every enabled Sign failure action of each row;
 - every Encrypt row on every curve with every `enc`, and every enabled Encrypt failure action of each row and curve (with A256GCM);
 - Verify and Decrypt as second taps, the Keys tab (create, public JWK, thumbprint, delete; a shared key has no public JWK), and the Server tab's eight buttons;
-- then the secrets check over everything the walk logged.
+- then the secrets check over everything the walk logged: no private member as JSON, and none of the private values of the keys the walk made. While the walk runs, `lib/browser/polyjose.ts` records those values; the recorder answers with counts only and is off outside the walk.
 
 A cell must succeed, and a failure action must give its code. Disabled rows and actions have no call to make, so they aren't steps. The last line is `POLYJOSE-PLAYGROUND: N/M OK`.
 
@@ -150,6 +150,9 @@ Each answers `{ "ok": true, …, "steps": [...] }` or `{ "ok": false, "code": "I
 - **No key material in a page, response or log.** Every JWK that is logged passes one gate (`publicOnly` in `lib/shared.ts`), and the routes refuse a JWK with a private member (`PrivateKeySent`). The content key and the ECDH shared secret never leave polyjose.
 - **Fixed demo messages.** Every token carries one of the messages in `lib/shared.ts`, never typed text, so every token on screen or in a log is a demo token.
 - **Demo shortcut.** `/api/verify` takes the browser's public key from the request to show the crossing. A real service takes a client's key from its own registry; the allow-list still decides the algorithm.
+- **Demo answers only.** `/api/verify` and `/api/decrypt` answer with the payload or plaintext only when it is the app's fixed demo message; anything else is `BadRequest`, so the routes never echo text they verified or decrypted. The server logs only the header of a JWT it issues (a real service never logs the tokens it issues) and only `kty`, `crv` and `kid` of a JWK it receives.
+- **Request bodies.** A route reads at most 64 KiB, counted while it reads, so a chunked body without a `Content-Length` is cut off too (`BodyTooLarge`). A body that isn't UTF-8 JSON is `BadRequest`.
+- **The routes' posture: an unauthenticated demo.** The routes are same-origin and send no CORS headers; they use no cookies, so there is nothing for a cross-site request (CSRF) to ride on; there is no rate limiting; `/api/issue` signs a token for anyone who asks; and the app sets no Content Security Policy. A real service adds authentication, rate limits and a CSP before it is exposed.
 
 ## The checks
 
@@ -178,7 +181,7 @@ In order. `npm run verify` and **Run the checks** run them. [CATALOG.md](../CATA
 6. **Server:** press each of the eight buttons. The Log tab shows the browser's lines and the server's (`LOG <tap>.s<n>`), and the server's terminal shows the same server lines.
 7. **Keys:** create an ES256 key, an ECDH-ES+A256KW key on X25519 and an HS256 key; show each one's public JWK and thumbprint (the HS256 key has none); sign with the ES256 key from the Sign tab's Key row; delete one, then **Delete all playground keys**.
 8. **Log:** **Copy all** and paste it into a file; **Share** (Safari and some Chrome builds open the share sheet; Firefox downloads `polyjose-playground-log.txt`); **Clear**.
-9. **The grep:** search the copied or shared log, and the server's output, for a private member. Both of these find nothing:
+9. **The grep:** search the copied or shared log, and the server's output, for a private member. Both of these find nothing. This is the minimum: it finds a private member written as JSON, not a key value logged some other way, which `npm run verify` also looks for.
 
    ```sh
    grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' polyjose-playground-log.txt

@@ -56,12 +56,46 @@ export class RequestLog {
 
 type Body = Record<string, unknown>;
 
-/** Reads a JSON object body of at most MAX_BODY_BYTES. */
-async function readBody(request: Request): Promise<Body> {
+/**
+ * The request's bytes, at most MAX_BODY_BYTES of them. The limit holds while reading: a body sent
+ * without a `Content-Length` (chunked) is counted chunk by chunk, and reading stops at the limit.
+ */
+async function readBytes(request: Request): Promise<Uint8Array> {
+  // Fast path: a declared length over the limit is refused before anything is read.
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > MAX_BODY_BYTES) throw new RequestError("BodyTooLarge");
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) throw new RequestError("BodyTooLarge");
+  if (request.body === null) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new RequestError("BodyTooLarge");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/** Reads a JSON object body (RFC 8259 §8.1: UTF-8) of at most MAX_BODY_BYTES. */
+async function readBody(request: Request): Promise<Body> {
+  const bytes = await readBytes(request);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new RequestError("BadRequest"); // not UTF-8
+  }
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -95,6 +129,17 @@ export function publicJwkField(body: Body, name: string): JwkObject {
   if (hasPrivateMember(value)) throw new RequestError("PrivateKeySent");
   if (typeof (value as { kty?: unknown }).kty !== "string") throw new RequestError("BadRequest");
   return value as JwkObject; // parsed from JSON, so every member is a JSON value
+}
+
+/**
+ * What the server logs of a JWK from a request: `kty`, `crv` and `kid` only (RFC 7517 §4.1,
+ * §4.5; RFC 7518 §6.2.1.1), not the whole key.
+ */
+export function jwkSummary(jwk: JwkObject): Record<string, string> {
+  const summary: Record<string, string> = { kty: String(jwk.kty) };
+  if (typeof jwk.crv === "string") summary.crv = jwk.crv;
+  if (typeof jwk.kid === "string") summary.kid = jwk.kid;
+  return summary;
 }
 
 function json(status: number, body: object): Response {

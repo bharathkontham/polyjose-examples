@@ -4,7 +4,7 @@
 import { jweEncryptCompact } from "@polyjose/node";
 
 import { CONTENT_ENC, KEY_MANAGEMENT_ALG, MESSAGES } from "../../../lib/shared";
-import { handlePost, publicJwkField } from "../_server/http";
+import { handlePost, jwkSummary, publicJwkField } from "../_server/http";
 
 export const runtime = "nodejs";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request): Promise<Response> {
     const jwk = publicJwkField(body, "jwk");
     const kid = typeof jwk.kid === "string" ? jwk.kid : undefined;
     log.step("input", { op: "jwe-encrypt", store: "software", alg: KEY_MANAGEMENT_ALG, enc: CONTENT_ENC });
-    log.step("jwk", {}, jwk);
+    log.step("jwk", {}, jwkSummary(jwk));
     const token = await log.call("jweEncryptCompact", () =>
       jweEncryptCompact(new TextEncoder().encode(MESSAGES.serverEncrypts), {
         enc: CONTENT_ENC,
