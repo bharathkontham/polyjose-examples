@@ -1,0 +1,21 @@
+{
+  "name": "polyjose-examples-node-ts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "polyjose example app for Node.js in TypeScript: one copyable .ts file per developer task, run by Node's type stripping, plus a run of every check in CATALOG.md.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "verify": "tsc --noEmit && node run.ts"
+  },
+  "dependencies": {
+    "@polyjose/node": "0.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  }
+}
