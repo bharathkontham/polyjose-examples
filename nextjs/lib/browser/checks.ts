@@ -19,6 +19,7 @@ import {
   type LogSink,
   type Outcome,
 } from "./crossings";
+import { browserName } from "./playground";
 import { errorCode, polyjoseVersion } from "./polyjose";
 
 class CheckFailure extends Error {}
@@ -123,15 +124,6 @@ export const CHECKS: readonly Check[] = [
 function describe(err: unknown): string {
   if (err instanceof CheckFailure) return err.message;
   return `unexpected ${errorCode(err)}`;
-}
-
-/** The browser and its version, from the user agent string (for the information line). */
-function browserName(): string {
-  const ua = navigator.userAgent;
-  const m = ua.match(/(Firefox|HeadlessChrome|Chrome)\/([\d.]+)/);
-  if (m) return `${m[1]} ${m[2]}`;
-  const safari = ua.match(/Version\/([\d.]+).*Safari/);
-  return safari ? `Safari ${safari[1]}` : ua;
 }
 
 /**

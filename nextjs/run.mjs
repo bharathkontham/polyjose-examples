@@ -1,7 +1,9 @@
-// `npm run verify`: builds the app, starts it, opens /?verify=1 in headless Chrome and prints
-// what the page prints: one line per check, then `POLYJOSE-VERIFY: P/R PASS`. Exits 0 only when
-// P = R = EXPECTED_CHECKS and the secrets grep over the browser console and the server output
-// finds nothing.
+// `npm run verify`: builds the app, starts it, opens /?verify=1&demo=1 in headless Chrome and
+// prints what the page prints: one line per check, then `POLYJOSE-VERIFY: P/R PASS`; then the
+// demo walk's information line, any step that didn't give its expected outcome, and
+// `POLYJOSE-PLAYGROUND: N/M OK`. Exits 0 only when P = R = EXPECTED_CHECKS,
+// N = M = EXPECTED_WALK_STEPS, both result lines agree with the lines above them, and the
+// secrets grep over the browser console and the server output finds nothing.
 //
 // Needs Node.js 22.12 or later, the installed packages (`npm ci --ignore-scripts`), and Google
 // Chrome or Chromium.
@@ -9,9 +11,9 @@
 // Environment:
 //   CHROME        the Chrome binary (default: the macOS Google Chrome app, else google-chrome,
 //                 google-chrome-stable, chromium or chromium-browser on PATH)
-//   RUN_TIMEOUT   seconds from starting the server to the page's result line (default 120).
-//                 When it runs out, `POLYJOSE-VERIFY: 0/<N> PASS (timeout)` is printed and the
-//                 exit is 1
+//   RUN_TIMEOUT   seconds from starting the server to the page's last result line (default
+//                 120). When it runs out, `POLYJOSE-VERIFY: 0/<N> PASS (timeout)` and
+//                 `POLYJOSE-PLAYGROUND: 0/<M> OK (timeout)` are printed and the exit is 1
 //
 // The server listens on a free port of 127.0.0.1. Chrome runs with a fresh profile in a
 // `.verify-*` folder here, removed afterwards. Only the processes this script started are
@@ -28,11 +30,22 @@ import { fileURLToPath } from "node:url";
 /** The number of `nextjs/*` checks the page runs (lib/browser/checks.ts). */
 const EXPECTED_CHECKS = 8;
 
+/**
+ * The number of demo walk steps (lib/browser/demo.ts), enabled cells and actions only:
+ * - 15 JWS algorithms × JWS and JWT (30), and × 4 failure actions, less wrong key and other
+ *   algorithm for the 6 RSA rows and other algorithm for EdDSA and Ed25519 (60 − 14 = 46);
+ * - 27 JWE key-management cells (16 of them ECDH-ES on 4 curves) × 6 `enc` (162), and × 3
+ *   failure actions, less wrong key and other `alg` for RSA-OAEP-256 (81 − 2 = 79);
+ * - Verify and Decrypt again (2), the Keys tab (2), the Server tab (8), and the secrets check
+ *   over the walk's own log (1).
+ */
+const EXPECTED_WALK_STEPS = 330;
+
 /** A private or symmetric JWK member as JSON (`"d":`), or an unhandled polyjose error. */
 const SECRETS = /"(d|p|q|dp|dq|qi|oth|k)"\s*:|PolyjoseError/;
 
-/** The lines the page prints (CATALOG.md, "Output and pass rule"). */
-const PAGE_LINE = /^(# |PASS |FAIL |SKIP |POLYJOSE-VERIFY: )/;
+/** The lines the page prints: the checks' (CATALOG.md, "Output and pass rule"), then the walk's. */
+const PAGE_LINE = /^(# |PASS |FAIL |SKIP |POLYJOSE-VERIFY: |PLAYGROUND (ok|bad) |POLYJOSE-PLAYGROUND: )/;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const say = (line) => console.error(`verify: ${line}`);
@@ -175,6 +188,7 @@ function pageLines() {
 
 const deadline = Date.now() + timeout * 1000;
 let final;
+let walkFinal;
 try {
   // 3. Start the server and wait until it answers.
   const port = await freePort();
@@ -195,11 +209,13 @@ try {
     browser = start(chrome, [
       "--headless=new", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
       "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync",
-      "--disable-gpu", "--enable-logging=stderr", "--v=0", `${base}/?verify=1`,
+      "--disable-gpu", "--enable-logging=stderr", "--v=0", `${base}/?verify=1&demo=1`,
     ], {});
     while (Date.now() < deadline && !browser.exited) {
-      final = pageLines().findLast((line) => line.startsWith("POLYJOSE-VERIFY: "));
-      if (final) break;
+      const lines = pageLines();
+      final = lines.findLast((line) => line.startsWith("POLYJOSE-VERIFY: "));
+      walkFinal = lines.findLast((line) => line.startsWith("POLYJOSE-PLAYGROUND: "));
+      if (final && walkFinal) break;
       await sleep(100);
     }
   } else if (!server.exited) {
@@ -212,13 +228,15 @@ try {
   await cleanup();
 }
 
+// Every check line, and of the walk's lines only the ones that didn't give the expected outcome.
 const lines = browser ? pageLines() : [];
-for (const line of lines) console.log(line);
+for (const line of lines) if (!line.startsWith("PLAYGROUND ok ")) console.log(line);
 
-if (!final) {
-  const timedOut = Date.now() >= deadline;
-  console.log(`POLYJOSE-VERIFY: 0/${EXPECTED_CHECKS} PASS (${timedOut ? "timeout" : "no result"})`);
-  say(timedOut ? `no result line within ${timeout}s` : "the server or Chrome stopped before the result line");
+if (!final || !walkFinal) {
+  const why = Date.now() >= deadline ? "timeout" : "no result";
+  if (!final) console.log(`POLYJOSE-VERIFY: 0/${EXPECTED_CHECKS} PASS (${why})`);
+  if (!walkFinal) console.log(`POLYJOSE-PLAYGROUND: 0/${EXPECTED_WALK_STEPS} OK (${why})`);
+  say(why === "timeout" ? `no result line within ${timeout}s` : "the server or Chrome stopped before the result lines");
   process.exit(1);
 }
 
@@ -236,10 +254,26 @@ for (const [where, count] of leaks) {
     say(`the secrets grep matched ${count} line(s) in ${where}`);
   }
 }
+const logCount = (text) => text.split("\n").filter((line) => / "LOG \d|^LOG \d/.test(line)).length;
+say(`the secrets grep read ${logCount(browser.output)} LOG lines from the browser console and ${logCount(server.output)} from the server`);
 if (clean) say("the secrets grep over the browser console and the server output found nothing");
 
-// Exit 0 only for P/R PASS with P = R = EXPECTED_CHECKS (CATALOG.md, "Output and pass rule").
+// Exit 0 only for P/R PASS with P = R = EXPECTED_CHECKS (CATALOG.md, "Output and pass rule"),
+// and N/M OK with N = M = EXPECTED_WALK_STEPS (PLAYGROUND.md, "Demo walk"). Each result line
+// must agree with the lines above it.
+const count = (prefix) => lines.filter((line) => line.startsWith(prefix)).length;
 const m = final.match(/^POLYJOSE-VERIFY: (\d+)\/(\d+) PASS/);
 const [passed, ran] = m ? [Number(m[1]), Number(m[2])] : [0, 0];
 if (ran !== EXPECTED_CHECKS) say(`${ran} checks ran; this app has ${EXPECTED_CHECKS}`);
-process.exitCode = clean && passed === ran && ran === EXPECTED_CHECKS ? 0 : 1;
+const checksAgree = count("PASS ") === passed && count("FAIL ") === ran - passed && count("SKIP ") === 0;
+if (!checksAgree) say("the POLYJOSE-VERIFY line doesn't agree with the PASS and FAIL lines above it");
+
+const w = walkFinal.match(/^POLYJOSE-PLAYGROUND: (\d+)\/(\d+) OK$/);
+const [ok, walked] = w ? [Number(w[1]), Number(w[2])] : [0, 0];
+if (walked !== EXPECTED_WALK_STEPS) say(`the demo walk had ${walked} steps; this app has ${EXPECTED_WALK_STEPS}`);
+const walkAgrees = count("PLAYGROUND ok ") === ok && count("PLAYGROUND bad ") === walked - ok;
+if (!walkAgrees) say("the POLYJOSE-PLAYGROUND line doesn't agree with the walk's lines above it");
+
+const checksPass = passed === ran && ran === EXPECTED_CHECKS && checksAgree;
+const walkPasses = ok === walked && walked === EXPECTED_WALK_STEPS && walkAgrees;
+process.exitCode = clean && checksPass && walkPasses ? 0 : 1;

@@ -1,10 +1,12 @@
 # polyjose in Next.js: the browser and the server
 
-A Next.js (App Router) app in which the same tokens cross between the browser and the server:
+A Next.js (App Router) app: an interactive playground in the browser, and route handlers on the server, with the same tokens crossing between them:
 
 - the browser signs a JWS and the server verifies it;
 - the server issues a JWT and the browser validates it against the server's JWK Set;
 - the browser encrypts a JWE to the server, and the server encrypts one to the browser.
+
+The playground has the tabs **Checks**, **Sign**, **Encrypt**, **Server**, **Keys** and **Log**: every algorithm polyjose offers in a browser, the failure actions, an explanation for each, and a log of every step that you can copy and share.
 
 The browser side uses [`@polyjose/wasm`](https://www.npmjs.com/package/@polyjose/wasm) (WebAssembly). The server side uses [`@polyjose/node`](https://www.npmjs.com/package/@polyjose/node) (a native Node.js addon) in route handlers. Both are polyjose 0.4.0.
 
@@ -14,19 +16,25 @@ Needs Node.js 22.12 or later. `npm run verify` also needs Google Chrome or Chrom
 
 ```sh
 npm ci --ignore-scripts
-npm run verify             # build, start, run the 8 checks in headless Chrome
+npm run verify             # build, start, run the 8 checks and the demo walk in headless Chrome
 ```
 
-`npm run verify` builds the app (`next build`), starts it on a free port of 127.0.0.1 (`next start`), opens `/?verify=1` in headless Chrome and prints the page's lines:
+`npm run verify` builds the app (`next build`), starts it on a free port of 127.0.0.1 (`next start`), opens `/?verify=1&demo=1` in headless Chrome and prints the page's lines:
 
 ```
 # polyjose 0.4.0 through @polyjose/wasm in HeadlessChrome …, and @polyjose/node in the route handlers
 PASS nextjs/browser-signs/server-verifies-es256
 …
 POLYJOSE-VERIFY: 8/8 PASS
+# polyjose playground demo walk: 330 steps, every one through the tabs' code
+POLYJOSE-PLAYGROUND: 330/330 OK
 ```
 
-It exits 0 only when all 8 checks pass and the secrets grep is empty: no private or symmetric JWK member (`"d":`, `"k":`, …) and no unhandled polyjose error in the browser console or the server output. It also checks that the `.wasm` file Next.js emitted is the package's file, byte for byte. `CHROME` names the Chrome binary. `RUN_TIMEOUT` (seconds, default 120) bounds the run; when it runs out the last line is `POLYJOSE-VERIFY: 0/8 PASS (timeout)` and the exit is 1.
+- `?verify=1` runs the 8 checks below. `?demo=1` runs the [demo walk](#the-demo-walk). Each also works on its own.
+- Of the walk's lines, only a step that didn't give its expected outcome is printed (`PLAYGROUND bad <step>: expected <Code>, got <Code>`); the page and the console have every step.
+- It exits 0 only when all 8 checks pass, all 330 walk steps give their expected outcome, each result line agrees with the lines above it, and the secrets grep is empty: no private or symmetric JWK member (`"d":`, `"k":`, …) and no unhandled polyjose error in the browser console or the server output.
+- It also checks that the `.wasm` file Next.js emitted is the package's file, byte for byte.
+- `CHROME` names the Chrome binary. `RUN_TIMEOUT` (seconds, default 120) bounds the run; when it runs out, the result lines are `POLYJOSE-VERIFY: 0/8 PASS (timeout)` and `POLYJOSE-PLAYGROUND: 0/330 OK (timeout)`, and the exit is 1.
 
 To use the app yourself:
 
@@ -34,16 +42,83 @@ To use the app yourself:
 npm run build && npm start # then open http://localhost:3000
 ```
 
-Each button runs one crossing and writes both sides' steps to the log on the page, the browser console and the server's stdout. **Run the checks** runs the same checks as `npm run verify`.
+Every tap writes its steps to the Log tab and the browser console, and the route handlers write theirs to the server's stdout. **Run the checks** and **Run the demo walk** (Checks tab) run what `npm run verify` runs.
+
+## The playground
+
+| Tab | What it does |
+|---|---|
+| **Checks** | The 8 checks, and the demo walk. The page opens on this tab. |
+| **Sign** | JWS compact or JWT; the key store; one row per algorithm, each with an info button; a new key or one from the Keys tab; the fixed payload. **Sign**, **Verify**, **Sign and verify**. **Try a failure**: tamper, other algorithm allowed, wrong key, expired. |
+| **Encrypt** | The key-management `alg`, the curve (ECDH-ES), the `enc`, the key store that decrypts, the key. **Encrypt** (always to the key's public JWK), **Decrypt**, **Round trip**. **Try a failure**: tamper ciphertext, other `alg` allowed, wrong key. |
+| **Server** | The four crossings and the server's four refusals, one button each. The log shows the browser's steps (`LOG <tap>.<n>`) and the server's (`LOG <tap>.s<n>`). |
+| **Keys** | This browser, the key stores, and the session's software keys: create, show the public JWK and its RFC 7638 thumbprint, copy, delete. |
+| **Log** | Every step of every tap, newest tap first. **Copy all**, **Share** (the browser's share sheet where it has one, else a `polyjose-playground-log.txt` download) and **Clear**. |
+
+Each result card shows the token (with a copy button), its protected header, the outcome (the verified `alg`, `kid` and claims, or whether the plaintext equals the input), or the error code with its explanation, where the key lives, and the time of each step.
+
+### What it offers
+
+The matrix is in `lib/matrix.ts`; the tabs and the walk both read it.
+
+| | Rows | Key |
+|---|---|---|
+| Sign (JWS and JWT) | HS256, HS384, HS512; RS256, RS384, RS512, PS256, PS384, PS512; ES256, ES384, ES512, ES256K; EdDSA, and Ed25519 (its fully specified name) | a new key from the browser's random number generator; RSA uses the RFC 7515 Appendix A.2 test key, because polyjose 0.4.0 can't generate RSA keys |
+| Encrypt (JWE compact) | ECDH-ES, ECDH-ES+A128KW, +A192KW, +A256KW, on P-256, P-384, P-521 and X25519; RSA-OAEP-256; A128KW, A192KW, A256KW; A128GCMKW, A192GCMKW, A256GCMKW; `dir`; PBES2-HS256+A128KW, PBES2-HS384+A192KW, PBES2-HS512+A256KW | the same; a PBES2 password is 16 random bytes, shown like a shared key |
+| `enc` | A128GCM, A192GCM, A256GCM, A128CBC-HS256, A192CBC-HS384, A256CBC-HS512, with every row | |
+
+- **Disabled, with the reason "not in polyjose 0.4.0":** the **Platform key store** and **WebCrypto non-extractable key** rows. polyjose 0.4.0 has no browser key store, and every polyjose key is a JWK, so it can't use a `CryptoKey` that keeps its private part out of JavaScript.
+- **Disabled failure actions, each with its reason:** "deleted key" (a software key isn't stored anywhere); "wrong key" and "other algorithm allowed" for RS\*, PS\* and RSA-OAEP-256 (the only RSA private key is the A.2 test key); "other algorithm allowed" for EdDSA and Ed25519 (an Ed25519 key has no other signing algorithm).
+- polyjose 0.4.0 refuses RSA-OAEP (SHA-1) and RSA1_5 with `UnsupportedAlgorithm`, so they aren't rows.
+- **On the decrypt side, a wrong key and a changed token both give `DecryptionFailed`** (RFC 7516 §11.5). The Encrypt tab's tokens have no `kid` in their header, because they go to one known key: polyjose refuses a decryption key whose `kid` differs from the header's with `KeyAlgorithmMismatch` before it decrypts.
+- **The browser note.** In a browser, the software keys live in page memory, and any script on the page can read them. The page says so at the top and on the Keys tab.
+
+The explanation texts are in `lib/explanations.ts`, one per tab, algorithm, `enc`, curve, store, failure action, refusal reason and error code.
+
+### The log
+
+One line per step, the same format on both sides:
+
+```
+LOG 7.1 input op=jws-sign-verify store=software alg=ES256 payload=preset
+LOG 7.2 key-software kty=EC alg=ES256 kid=… crv=P-256 ms=1
+LOG 7.3 jwk {"kty":"EC","crv":"P-256",…}
+LOG 7.4 call jwsSignCompact ms=1
+LOG 7.5 header {"alg":"ES256","kid":"…"}
+LOG 7.6 token eyJ…
+LOG 7.7 call jwsVerifyCompact ms=1
+LOG 7.8 verify ok alg=ES256 kid=… ms=1
+```
+
+- `<tap>` counts taps from 1; tap 0 is the `device` line, logged when the page starts. The server's lines for a tap are `LOG <tap>.s<n>`.
+- Values have no spaces. `ms` is whole milliseconds from a monotonic clock, shown and never checked. A line over 800 characters continues on lines `LOG <tap>.<step> + …`.
+- Every line goes to the browser console as it is, so a log copied from the console and one copied from the Log tab are the same.
+
+### No secrets on the page, in a response or in a log
+
+- Every JWK and header that is shown or logged passes one gate, `publicOnly` in `lib/shared.ts`, which replaces any object with a private or symmetric member (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`) by `"[withheld]"`. A shared key is shown as its type, `alg`, `kid` and length only, and its `kid` is a page-local name, not its thumbprint.
+- An error is shown and logged as its code only (`PolyjoseError.code`), never its message.
+- Every verify and decrypt names its own allow-lists (`allowedAlgs`, and `allowedEnc` for JWE), never read from the token; `none` is never in one.
+
+### The demo walk
+
+`/?demo=1`, or **Run the demo walk**, runs 330 steps, each through the same functions the tabs' buttons call (`lib/browser/playground.ts`), one tap each:
+
+- every Sign row as a JWS and as a JWT, and every enabled Sign failure action of each row;
+- every Encrypt row on every curve with every `enc`, and every enabled Encrypt failure action of each row and curve (with A256GCM);
+- Verify and Decrypt as second taps, the Keys tab (create, public JWK, thumbprint, delete; a shared key has no public JWK), and the Server tab's eight buttons;
+- then the secrets check over everything the walk logged.
+
+A cell must succeed, and a failure action must give its code. Disabled rows and actions have no call to make, so they aren't steps. The last line is `POLYJOSE-PLAYGROUND: N/M OK`.
 
 ## What runs where
 
 | Where | Files | Uses |
 |---|---|---|
 | Browser | `lib/browser/polyjose.ts`: every polyjose operation of the page (generate a key, public JWK, thumbprint, sign, verify, validate a JWT with a JWK Set, encrypt, decrypt) | `@polyjose/wasm` |
-| Browser | `lib/browser/crossings.ts`: the four crossings; `lib/browser/checks.ts`: the checks; `components/Playground.tsx`: the buttons and the log | the module above, and `fetch` to `/api` |
+| Browser | `lib/browser/playground.ts`: what each tab's buttons do; `lib/browser/crossings.ts`: the four crossings; `lib/browser/checks.ts`: the checks; `lib/browser/demo.ts`: the demo walk; `lib/browser/test-keys.ts`: the RSA test key; `components/`: the tabs | the module above, and `fetch` to `/api` |
 | Server | `app/api/*/route.ts`: the route handlers; `app/api/_server/keys.ts`: the server's private keys | `@polyjose/node` |
-| Both | `lib/shared.ts`: algorithms, demo claims, the fixed demo messages, the log line format | nothing |
+| Both | `lib/shared.ts`: algorithms, demo claims, the fixed demo messages, the log line format and the `publicOnly` gate; `lib/matrix.ts`: the playground's matrix; `lib/explanations.ts`: the explanation texts | nothing |
 
 The route handlers:
 
@@ -91,10 +166,24 @@ In order. `npm run verify` and **Run the checks** run them.
 
 ## Check it by hand
 
-1. `npm run build && npm start`, then open `http://localhost:3000` in Chrome, Safari and Firefox.
-2. Press each crossing button. The log shows the browser's steps (`LOG <tap>.<n>`) and the server's (`LOG <tap>.s<n>`), and the server's terminal shows the same server lines.
-3. Press **Run the checks**: the last line is `POLYJOSE-VERIFY: 8/8 PASS`.
-4. Search the page log and the server output for `"d":`: there is no match.
+`npm run verify` covers Chrome. These steps cover the browsers and what a headless run can't see.
+
+1. `npm run build && npm start`. Open `http://localhost:3000` in Chrome, Safari and Firefox, and do the steps below in each.
+2. **Checks:** press **Run the checks** (last line `POLYJOSE-VERIFY: 8/8 PASS`), then **Run the demo walk** (last line `POLYJOSE-PLAYGROUND: 330/330 OK`).
+3. **Sign:** for JWS compact and JWT, pick a few rows (an HS, an RS or PS, an ES, EdDSA) and press **Sign**, **Verify** and **Sign and verify**. Open a few info buttons. Press each failure action and read its code and explanation on the card.
+4. **Encrypt:** pick ECDH-ES+A256KW on each curve, RSA-OAEP-256, A256KW, `dir` and a PBES2 row, with two or three `enc`s; **Encrypt**, **Decrypt**, **Round trip**, and each failure action. A wrong key and a changed ciphertext both say `DecryptionFailed`.
+5. **The disabled rows:** on Sign, Encrypt and Keys, **Platform key store** and **WebCrypto non-extractable key** are disabled with "not in polyjose 0.4.0". On Sign, pick RS256: "Wrong key" and "Other algorithm allowed" are disabled with their reason; pick EdDSA: "Other algorithm allowed" is disabled; "Deleted key" is disabled everywhere.
+6. **Server:** press each of the eight buttons. The Log tab shows the browser's lines and the server's (`LOG <tap>.s<n>`), and the server's terminal shows the same server lines.
+7. **Keys:** create an ES256 key, an ECDH-ES+A256KW key on X25519 and an HS256 key; show each one's public JWK and thumbprint (the HS256 key has none); sign with the ES256 key from the Sign tab's Key row; delete one, then **Delete all playground keys**.
+8. **Log:** **Copy all** and paste it into a file; **Share** (Safari and some Chrome builds open the share sheet; Firefox downloads `polyjose-playground-log.txt`); **Clear**.
+9. **The grep:** search the copied or shared log, and the server's output, for a private member. Both of these find nothing:
+
+   ```sh
+   grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' polyjose-playground-log.txt
+   npm start 2>&1 | tee server.log   # then, after using the page: grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' server.log
+   ```
+
+10. Optionally, a phone's browser on the same network: `npm start -- -H 0.0.0.0`, then open `http://<this computer's address>:3000`. Copy and Share may need HTTPS there, because browsers allow the clipboard and the share sheet in secure contexts only.
 
 ## Versions
 
