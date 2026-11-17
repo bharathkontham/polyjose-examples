@@ -1,0 +1,35 @@
+// POST /api/decrypt { tap, token }: the server decrypts a compact JWE the browser encrypted to
+// the server's public key (RFC 7516 §5.2).
+//
+// Both allow-lists are the server's own, ECDH-ES+A256KW and A256GCM only (RFC 8725 §3.1). A
+// wrong key, a changed token or a bad tag all fail with the one code DecryptionFailed, so the
+// answer says nothing about the cause (RFC 7516 §11.5). The content key and the ECDH shared
+// secret never leave polyjose.
+import { jweDecryptCompact } from "@polyjose/node";
+
+import { CONTENT_ENC, KEY_MANAGEMENT_ALG } from "../../../lib/shared";
+import { RequestError, handlePost, stringField } from "../_server/http";
+import { serverKeys } from "../_server/keys";
+
+export const runtime = "nodejs";
+
+const ALLOWED_ALGS = [KEY_MANAGEMENT_ALG] as const;
+const ALLOWED_ENC = [CONTENT_ENC] as const;
+
+export async function POST(request: Request): Promise<Response> {
+  return handlePost(request, "decrypt", async (body, log) => {
+    const token = stringField(body, "token");
+    const { decryption } = await serverKeys();
+    log.step("input", { op: "jwe-decrypt", allowedAlgs: ALLOWED_ALGS.join(","), allowedEnc: ALLOWED_ENC.join(",") });
+    const decrypted = await jweDecryptCompact(token, decryption, { allowedAlgs: ALLOWED_ALGS, allowedEnc: ALLOWED_ENC });
+    let plaintext: string;
+    try {
+      plaintext = new TextDecoder("utf-8", { fatal: true }).decode(decrypted.plaintext);
+    } catch {
+      throw new RequestError("BadRequest"); // this demo only exchanges text
+    }
+    log.step("decrypt", { result: "ok", alg: String(decrypted.header.alg), enc: String(decrypted.header.enc), bytes: decrypted.plaintext.length });
+    // The plaintext is one of the app's fixed demo messages, so the page may show it.
+    return { plaintext };
+  });
+}
