@@ -52,6 +52,7 @@ Encryption is always done in software, to the key's public JWK. The store column
 
 - **`enc`:** A128GCM, A192GCM, A256GCM, A128CBC-HS256, A192CBC-HS384 and A256CBC-HS512, with every store. Content encryption is always polyjose's, in software.
 - **Below an API level** the cell is ✗ with `reason.api-level`, and Run anyway gives `UnsupportedAlgorithm`.
+- **Precedence.** The library checks in this order: the algorithm table, then the API level and the key options, then the device (a Secure Enclave or StrongBox present, a secure lock screen). When a cell breaks several rules, its refusal code is that of the first rule that fails in this order, and the playground shows that rule's reason.
 
 ### Apple notes
 
@@ -62,8 +63,8 @@ Encryption is always done in software, to the key's public JWK. The store column
 ### Android notes
 
 - **No StrongBox** ([`PackageManager.FEATURE_STRONGBOX_KEYSTORE`](https://developer.android.com/reference/android/content/pm/PackageManager)):
-  - `StrongBox.Required` is ✗ with `reason.no-strongbox`; Run anyway gives `PlatformKeyFailed`, and no key is left behind.
-  - `StrongBox.Preferred` is enabled and labelled "falls back to the TEE; the key reports where it went": it succeeds, and `securityLevel` says `TrustedEnvironment`.
+  - `StrongBox.Required` is ✗ with `reason.no-strongbox`; from API 28, Run anyway gives `PlatformKeyFailed`, and no key is left behind. Below API 28 the StrongBox cells are ✗ with `reason.api-level` (StrongBox needs API 28), and the library gives `UnsupportedAlgorithm` before it asks the Keystore.
+  - `StrongBox.Preferred` is enabled and labelled "falls back to the TEE; the key reports where it went": it succeeds, and `securityLevel` is not `StrongBox`: `TrustedEnvironment` on a device, `Software` on the `polyjose-api34` emulator.
   - A StrongBox cell that is ✗ in the tables gives `UnsupportedAlgorithm` under `Required`, with or without StrongBox.
 - **User authentication** ([`KeyGenParameterSpec.Builder`](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)):
   - Time-bound (`option.auth.time-bound`): every key kind.
@@ -89,7 +90,10 @@ Each action is one tap. It logs every step and ends with the code below.
 | `failure.encrypt.wrong-key` | Encrypt | Encrypts, then decrypts with another key of the same `alg` and curve or size | `DecryptionFailed` |
 | `failure.encrypt.deleted-key` | Encrypt (platform keys) | Creates a key, deletes it, then opens it again by its tag or alias | `KeyNotFound` |
 
-With a software key, the two deleted-key actions are disabled with `reason.software-not-stored`.
+With a software key, the two deleted-key actions are disabled with `reason.software-not-stored`. Two more cases have no second key to use:
+
+- **Software RS\*, PS\* and RSA-OAEP-256:** `failure.sign.wrong-key` and `failure.encrypt.wrong-key` are disabled with `key.test-rsa`, because the RFC 7515 Appendix A.2 test key is the only software RSA private key.
+- **EdDSA:** no other signing algorithm uses an Ed25519 key, so `failure.sign.other-alg` verifies with `["ES256"]`. The code is the same, `AlgorithmNotAllowed`, because the allow-list is checked before the key (RFC 8725 §3.1).
 
 ## Explanations
 
@@ -182,7 +186,7 @@ Every tab, algorithm, `enc`, curve, store, option, refusal reason, failure actio
 | `option.curve` | The curve of an ECDH-ES key: P-256, P-384, P-521 or X25519. |
 | `option.strongbox.off` | The TEE. StrongBox is never asked for. |
 | `option.strongbox.preferred` | StrongBox when the device has it and it can serve the algorithm, else the TEE: falls back to the TEE; the key reports where it went. |
-| `option.strongbox.required` | StrongBox or nothing. Without StrongBox, creating the key fails with `PlatformKeyFailed` and no key is left behind; there is never a silent move to the TEE. |
+| `option.strongbox.required` | StrongBox or nothing. Without StrongBox, creating the key fails with `PlatformKeyFailed` (API 28 or later; below 28, StrongBox is refused with `UnsupportedAlgorithm`) and no key is left behind; there is never a silent move to the TEE. |
 | `option.access.userPresence` | The user confirms each use with Face ID, Touch ID or the device passcode. |
 | `option.access.biometryAny` | The user confirms each use with Face ID or Touch ID, with any enrolled face or finger, including ones enrolled later. |
 | `option.access.biometryCurrentSet` | The user confirms each use with Face ID or Touch ID, with the faces or fingers enrolled now; a change to them makes the key unusable. |
@@ -245,7 +249,7 @@ The text gives the meaning, then what an app does about it.
 | `error.MultipleMatchingKeys` | More than one key in the JWK Set matches (RFC 7517 §5). Give the keys distinct `kid`s. |
 | `error.KeyNotFound` | No usable key under that name: none was created, it was deleted, or the platform invalidated it. Create a new key. |
 | `error.UserAuthenticationRequired` | The key needs the user to authenticate, and they haven't, cancelled, or can't (lockout, no biometrics). Prompt, then retry. |
-| `error.PlatformKeyFailed` | Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help. |
+| `error.PlatformKeyFailed` | Any other key store failure, for example a name that already holds a key, or StrongBox required and absent. Report it; retrying may not help. When decrypting, such a failure gives `DecryptionFailed` instead, so every decryption failure looks the same (RFC 7516 §11.5). |
 
 ## Log
 
@@ -302,7 +306,7 @@ Nothing the user can see or copy holds a secret: the screen, the Log tab, the mi
   - Every JWK passes one public-only gate, which replaces any object with a private or symmetric member (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`) by `[withheld]`.
   - A software oct key is shown as `kty`, `alg`, `kid` and its length only. A private EC, OKP or RSA JWK is shown only as its public JWK.
   - An error is shown and logged as its code only: the `PolyjoseError` case name in Swift, the `PolyjoseException` subclass's simple name in Kotlin, and the type name of any other error. Never its message, `detail`, `localizedDescription` or platform error text.
-- **Checked:** the demo walk's captured log has no line that matches `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` (as `grep -E`), and the walk includes HS256 and A256KW oct keys and the software EC and RSA keys.
+- **Checked:** the demo walk's captured log has no line that matches `"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:` (as `grep -E`), and the walk includes HS256 and A256KW oct keys and the software EC and RSA keys. This grep is the checkable minimum, not the whole rule: the rule above holds for every screen and log line, also those the walk doesn't reach.
 
 ## Key names
 

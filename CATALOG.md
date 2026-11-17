@@ -11,7 +11,7 @@ polyjose **0.4.0**. The count N per platform:
 | iOS | 44 | 1–34, then the ten [iOS platform-key checks](#ios-applekey) as 35–44 |
 | Android | 44 | 1–34, then the ten [Android platform-key checks](#android-androidkeystorekey) as 35–44 |
 
-Checks 1–34 run on every platform. The platform-key checks are specified below and arrive in the iOS and Android apps with their per-store examples; until then those two apps run checks 1–34 and their `run.sh` holds N = 34.
+Checks 1–34 run on every platform. Node.js and web run checks 1–34, so N = 34. iOS and Android run checks 1–44, the [platform-key checks](#platform-key-checks) of their per-store examples included, so N = 44.
 
 ## Output and pass rule
 
@@ -36,7 +36,12 @@ POLYJOSE-VERIFY: 41/42 PASS (2 skipped)
   - `<what>: expected <a>, got <b>`, only for public values (algorithm names, `kid`, indexes, the RFC 7638 thumbprint);
   - `<what> differs`, for anything else (payloads, claims, key members).
 - **The final line** is `POLYJOSE-VERIFY: P/R PASS`. P is the number of PASS lines and R the number of checks that ran (PASS plus FAIL; skips excluded). ` (S skipped)` is appended only when S > 0.
-- **A run exits 0 only when P = R and R + S = N**, where P and R are read from the final line, S is the number of `SKIP` lines, and N is the platform's count in the table above. So every check that ran passed, and every check of the platform either ran or was skipped: a skip can't hide a missing check, and a run that prints fewer than N check lines fails. The final line must also agree with the lines above it (P `PASS` lines, R − P `FAIL` lines, S `SKIP` lines). Anything else, including a timeout, exits non-zero. On a timeout it prints `POLYJOSE-VERIFY: 0/<N> PASS (timeout)`. The run is `npm run verify` for Node.js and `run.sh` for the other apps; each holds N once (`EXPECTED_CHECKS` in `node/run.mjs`, `expected_checks` in each `run.sh`), and a change that adds checks raises it.
+- **A run exits 0 only when P = R and R + S = N**, where P and R are read from the final line, S is the number of `SKIP` lines, and N is the platform's count in the table above. So every check that ran passed, and every check of the platform either ran or was skipped: a skip can't hide a missing check, and a run that prints fewer than N check lines fails. Node.js and web have no skips, so their runs require P = R = N. The iOS and Android `run.sh` also require:
+  - the final line agrees with the lines above it (P `PASS` lines, R − P `FAIL` lines, S `SKIP` lines);
+  - no check id appears twice;
+  - at least the 34 checks that never skip ran (R ≥ 34), so a `0/0 PASS (N skipped)` run never exits 0.
+
+  Anything else, including a timeout, exits non-zero. On a timeout it prints `POLYJOSE-VERIFY: 0/<N> PASS (timeout)`. The run is `npm run verify` for Node.js and `run.sh` for the other apps; each holds N once (`EXPECTED_CHECKS` in `node/run.mjs`, `expected_checks` in each `run.sh`), and a change that adds checks raises it.
 - **A skip is allowed only** when the device lacks the hardware a check needs (Secure Enclave, StrongBox) or the OS level its platform key store needs. A skip never counts as a pass. Checks 1–34 never skip; each platform-key check below states its one skip condition.
 - **Where the lines go.** Node.js: stdout. Web: the page (`<pre id="result">`) and the browser console. iOS: stdout (`print`). Android: logcat, tag `POLYJOSE`. Each app with a screen also shows them there.
 
@@ -52,10 +57,11 @@ Each app has one example file per developer task, which you can read and copy on
 | Encrypt and decrypt | `encrypt-decrypt` | `EncryptDecrypt` | Encrypt and decrypt (JWE) |
 | Create keys and use a JWK Set | `keys-jwks` | `KeysJwks` | Create keys and use a JWK Set |
 | Decode a token before verifying it | `decode-unverified` | `DecodeUnverified` | Decode a token before verifying it |
-| Use a platform key store | — | `PlatformKeys` | Use a platform key store |
+| Use a platform key store | — | one file per store: `PlatformKeysKeychain`, `PlatformKeysSecureEnclave` (Swift); `PlatformKeysKeystore`, `PlatformKeysStrongBox` (Kotlin) | Use a platform key store |
 
 - The fixed keys live in `test-keys` (`TestKeys`).
-- The last two tasks are not in the apps yet; their headings exist already, and say so. The platform key store examples arrive with the [platform-key checks](#platform-key-checks).
+- The decode task is not in the apps yet; its headings exist already, and say so.
+- The platform key store examples are `PlatformKeysKeychain.swift` and `PlatformKeysSecureEnclave.swift` in the iOS app, and `PlatformKeysKeystore.kt` and `PlatformKeysStrongBox.kt` in the Android app. The [platform-key checks](#platform-key-checks) call them.
 - [PLAYGROUND.md](PLAYGROUND.md) describes the interactive playground of the iOS and Android apps, which calls the same example files.
 
 ## Fixed keys
@@ -159,7 +165,7 @@ Checks 35–44 of the iOS and Android apps use keys held by the platform: the pr
 | 41 | `platform-key/secure-enclave/es256-sign` | `generate` ES256, `.secureEnclave`; sign a compact JWS; verify in software | `protection` is `.secureEnclave`; the verified `alg` is ES256; the payload equals the input | `SecureEnclave.isAvailable` is false: `no Secure Enclave on this device` | RFC 7515 §5.1, §5.2; RFC 7518 §3.4 |
 | 42 | `platform-key/secure-enclave/es256-jwt` | `generate` ES256, `.secureEnclave`; sign a JWT; verify in software | the verified `alg` is ES256; the claims equal the claims sent | as 41 | RFC 7519 §7.1, §7.2 |
 | 43 | `platform-key/secure-enclave/ecdh-es-a256kw-p-256` | `generate` ECDH-ES, `.secureEnclave`; encrypt to its public JWK with `ECDH-ES+A256KW`; decrypt with the key | the public JWK has `crv: P-256`; the plaintext equals the input | as 41 | RFC 7516 §5.2; RFC 7518 §4.6 |
-| 44 | `platform-key/secure-enclave/rejects-es384` | `generate` ES384, `.secureEnclave` | `UnsupportedAlgorithm`, and no key under the tag afterwards (`open` gives `KeyNotFound`) | as 41 | RFC 7518 §3.4 |
+| 44 | `platform-key/secure-enclave/rejects-es384` | `generate` ES384, `.secureEnclave` | `UnsupportedAlgorithm`, and no key under the tag afterwards (`open` gives `KeyNotFound`) | never: `generate` refuses ES384 for the Secure Enclave before it checks that one is available | RFC 7518 §3.4 |
 
 - The Simulator reports a Secure Enclave ([`SecureEnclave.isAvailable`](https://developer.apple.com/documentation/cryptokit/secureenclave/isavailable)), so checks 41–44 run there: **`POLYJOSE-VERIFY: 44/44 PASS`**. The Simulator's Secure Enclave is a host pass-through, not a hardware guarantee; only a run on an iPhone shows the hardware.
 
@@ -172,12 +178,12 @@ Checks 35–44 of the iOS and Android apps use keys held by the platform: the pr
 | 35 | `platform-key/keystore/es256-sign` | `generate` ES256, `StrongBox.Off`; sign a compact JWS; verify in software | the verified `alg` is ES256; the payload equals the input | never | RFC 7515 §5.1, §5.2; RFC 7518 §3.4 |
 | 36 | `platform-key/keystore/es256-jwt` | `generate` ES256, `StrongBox.Off`; sign a JWT; verify in software with the shared JWT verify options | the verified `alg` is ES256; the claims equal the claims sent | never | RFC 7519 §7.1, §7.2 |
 | 37 | `platform-key/keystore/ps256-sign` | `generate` PS256, `StrongBox.Off`, 2048 bits; sign a compact JWS; verify in software | the verified `alg` is PS256; the payload equals the input | never | RFC 7515 §5.1, §5.2; RFC 7518 §3.5 |
-| 38 | `platform-key/keystore/ecdh-es-a256kw-p-256` | `generate` ECDH-ES, `StrongBox.Off`; encrypt to its public JWK with `ECDH-ES+A256KW`; decrypt with the key | the plaintext equals the input | API level below 31: `API 31` | RFC 7516 §5.2; RFC 7518 §4.6 |
+| 38 | `platform-key/keystore/ecdh-es-a256kw-p-256` | `generate` ECDH-ES, `StrongBox.Off`; encrypt to its public JWK with `ECDH-ES+A256KW`; decrypt with the key | the plaintext equals the input | API level below 31: `needs API 31` | RFC 7516 §5.2; RFC 7518 §4.6 |
 | 39 | `platform-key/keystore/open-again` | `generate` ES256, `StrongBox.Off`; `open` the same alias; sign with the opened key; verify with the first key's public JWK | both public JWKs have the same RFC 7638 thumbprint; the signature verifies | never | RFC 7638 §3; RFC 7515 §5.2 |
 | 40 | `platform-key/keystore/delete-then-open` | `generate` ES256; `delete` the alias; `open` it | `KeyNotFound` | never | — (key store) |
 | 41 | `platform-key/strongbox/es256-sign` | `generate` ES256, `StrongBox.Required`; sign a compact JWS; verify in software | `securityLevel` is `StrongBox`; the signature verifies | no StrongBox: `no StrongBox on this device` | RFC 7515 §5.2; RFC 7518 §3.4 |
-| 42 | `platform-key/strongbox/ecdh-es-a256kw-p-256` | `generate` ECDH-ES, `StrongBox.Required`; encrypt and decrypt as 38 | `securityLevel` is `StrongBox`; the plaintext equals the input | no StrongBox: `no StrongBox on this device`; else API level below 31: `API 31` | RFC 7516 §5.2; RFC 7518 §4.6 |
-| 43 | `platform-key/strongbox/required-when-absent` | On a device without StrongBox: `generate` ES256, `StrongBox.Required`; then `open` the alias | `PlatformKeyFailed`, then `KeyNotFound`: no key is left behind, and there is no silent move to the TEE | the device has StrongBox: `StrongBox present` | — (key store) |
+| 42 | `platform-key/strongbox/ecdh-es-a256kw-p-256` | `generate` ECDH-ES, `StrongBox.Required`; encrypt and decrypt as 38 | `securityLevel` is `StrongBox`; the plaintext equals the input | no StrongBox: `no StrongBox on this device`; else API level below 31: `needs API 31` | RFC 7516 §5.2; RFC 7518 §4.6 |
+| 43 | `platform-key/strongbox/required-when-absent` | On a device without StrongBox: `generate` ES256, `StrongBox.Required`; then `open` the alias | `PlatformKeyFailed`, then `KeyNotFound`: no key is left behind, and there is no silent move to the TEE | the device has StrongBox: `StrongBox present`; else API level below 28: `needs API 28` (below 28 the library refuses StrongBox with `UnsupportedAlgorithm` before it asks the Keystore) | — (key store) |
 | 44 | `platform-key/strongbox/preferred-reports-level` | `generate` ES256, `StrongBox.Preferred`; sign a compact JWS; verify in software | succeeds. With StrongBox: `securityLevel` is `StrongBox` (below API 31, where the platform can't say which, `SecureHardware`). Without StrongBox: `securityLevel` is not `StrongBox` (it is where the platform puts the fallback: `TrustedEnvironment` on a device, `Software` on the `polyjose-api34` emulator), and `open` finds the key (same RFC 7638 thumbprint) | never | RFC 7515 §5.2; RFC 7638 §3 |
 
 - On the `polyjose-api34` emulator (no StrongBox, API 34), checks 41 and 42 skip: **`POLYJOSE-VERIFY: 42/42 PASS (2 skipped)`**. On a device with StrongBox and API 31 or later, check 43 skips: `43/43 PASS (1 skipped)`. An emulator's keys are software, whatever it reports; only a run on a device shows the TEE or StrongBox.
