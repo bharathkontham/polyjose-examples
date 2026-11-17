@@ -6,6 +6,11 @@
 #   ./run.sh                               against the published polyjose Swift package (the
 #                                          project's package requirement, exact 0.4.0)
 #   POLYJOSE_SRC=../../polyjose ./run.sh   against a local polyjose checkout (see README.md)
+#   ./run.sh --playground                  instead of the checks, the playground's demo walk
+#                                          (../PLAYGROUND.md, "Demo walk"): one `WALK` line per
+#                                          step, then `POLYJOSE-PLAYGROUND: N/M OK`. Exits 0 only
+#                                          when N = M and no captured line holds a private or
+#                                          symmetric JWK member (PLAYGROUND.md, "Secrets").
 #
 # The Simulator: a device named `polyjose-examples` on the newest installed iOS runtime, created
 # the first time and kept for the next runs. When it is not running, run.sh boots it and shuts it
@@ -28,9 +33,16 @@ export LC_ALL=C
 
 here=$(cd "$(dirname "$0")" && pwd -P)
 me=run.sh
+mode=checks
+case "${1:-}" in
+"") ;;
+--playground) mode=playground ;;
+*) echo "usage: $me [--playground]" >&2; exit 2 ;;
+esac
 bundle_id=dev.polyjose.examples
 device_name=polyjose-examples
 expected_checks=44 # N: the number of iOS checks CATALOG.md lists for the pinned polyjose (0.4.0)
+min_ran=34         # the checks that never skip (CATALOG.md, "Output and pass rule")
 timeout=${POLYJOSE_TIMEOUT:-300}
 build_dir=$here/.build
 logs=$build_dir/logs
@@ -191,7 +203,11 @@ trap 'exit 143' TERM
 deadline=$(($(date +%s) + timeout))
 timed_out() {
   echo "$me: no result within ${timeout} s (POLYJOSE_TIMEOUT)" >&2
-  echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (timeout)"
+  if [ "$mode" = playground ]; then
+    echo "POLYJOSE-PLAYGROUND: 0/0 OK (timeout)"
+  else
+    echo "POLYJOSE-VERIFY: 0/$expected_checks PASS (timeout)"
+  fi
   exit 1
 }
 
@@ -220,6 +236,51 @@ case "$line" in
 esac
 within_deadline xcrun simctl bootstatus "$udid"
 within_deadline xcrun simctl install "$udid" "$app"
+
+# --- the playground's demo walk (--playground) ------------------------------------------------
+
+if [ "$mode" = playground ]; then
+  echo "==> launch $bundle_id -playground-demo (log: .build/logs/playground.log)" >&2
+  out=$logs/playground.log
+  : >"$out"
+  xcrun simctl launch --console-pty --terminate-running-process "$udid" "$bundle_id" -playground-demo >"$out" 2>&1 &
+  launch_pid=$!
+  while ! grep -q '^POLYJOSE-PLAYGROUND: ' <(tr -d '\r' <"$out"); do
+    if ! kill -0 "$launch_pid" 2>/dev/null; then break; fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      tr -d '\r' <"$out" | grep -E '^(# |WALK )' || true
+      timed_out
+    fi
+    sleep 1
+  done
+  for _ in 1 2 3 4 5; do kill -0 "$launch_pid" 2>/dev/null || break; sleep 1; done
+
+  walk=$(tr -d '\r' <"$out" | grep -E '^(# |WALK |POLYJOSE-PLAYGROUND: )' || true)
+  [ -z "$walk" ] || printf '%s\n' "$walk"
+  final=$(printf '%s\n' "$walk" | grep -E '^POLYJOSE-PLAYGROUND: ' | tail -n 1 || true)
+  if [ -z "$final" ]; then
+    echo "$me: the app stopped before its final line (log: .build/logs/playground.log)" >&2
+    echo "POLYJOSE-PLAYGROUND: 0/0 OK (no result)"
+    exit 1
+  fi
+  counts=$(echo "$final" | sed -nE 's/^POLYJOSE-PLAYGROUND: ([0-9]+)\/([0-9]+) OK$/\1 \2/p')
+  [ -n "$counts" ] || { echo "$me: unexpected final line: $final" >&2; exit 1; }
+  read -r ok walked <<<"$counts"
+  ok_lines=$(printf '%s\n' "$walk" | grep -c '^WALK OK ' || true)
+  walk_lines=$(printf '%s\n' "$walk" | grep -c '^WALK ' || true)
+  # The secrets check over everything the app printed, the LOG lines included.
+  secrets=$(tr -d '\r' <"$out" | grep -cE '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' || true)
+  log_lines=$(tr -d '\r' <"$out" | grep -c '^LOG ' || true)
+  echo "$me: secrets check: $secrets of $(tr -d '\r' <"$out" | wc -l | tr -d ' ') captured lines ($log_lines LOG lines) hold a private or symmetric JWK member" >&2
+  if [ "$ok" != "$ok_lines" ] || [ "$walked" != "$walk_lines" ]; then
+    echo "$me: the final line does not match the $ok_lines OK and $walk_lines WALK lines" >&2
+    exit 1
+  fi
+  if [ "$walked" -gt 0 ] && [ "$ok" = "$walked" ] && [ "$secrets" = 0 ]; then exit 0; fi
+  exit 1
+fi
+
+# --- the checks -------------------------------------------------------------------------------
 
 echo "==> launch $bundle_id -autorun" >&2
 out=$logs/app.log
@@ -260,6 +321,15 @@ read -r passed ran skipped <<<"$counts" || true
 skipped=${skipped:-0}
 if [ "$passed" != "$pass_lines" ] || [ "$ran" != "$((pass_lines + fail_lines))" ] || [ "$skipped" != "$skip_lines" ]; then
   echo "$me: the final line does not match the $pass_lines PASS, $fail_lines FAIL and $skip_lines SKIP lines" >&2
+  exit 1
+fi
+duplicates=$(printf '%s\n' "$lines" | sed -nE 's/^(PASS|FAIL|SKIP) ([^: ]+).*/\2/p' | sort | uniq -d)
+if [ -n "$duplicates" ]; then
+  echo "$me: a check id appears more than once: $(printf "%s\n" "$duplicates" | tr "\n" " ")" >&2
+  exit 1
+fi
+if [ "$ran" -lt "$min_ran" ]; then
+  echo "$me: $ran checks ran; the $min_ran checks that never skip must all run" >&2
   exit 1
 fi
 [ "$((ran + skip_lines))" = "$expected_checks" ] ||

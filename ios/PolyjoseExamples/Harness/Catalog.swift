@@ -291,7 +291,7 @@ enum Catalog {
             }
         }
 
-        // The one skip condition of checks 41-44 (CATALOG.md).
+        // The one skip condition of checks 41-43 (CATALOG.md).
         let noSecureEnclave: @Sendable () -> String? = {
             PlatformKeysSecureEnclave.isAvailable ? nil : "no Secure Enclave on this device"
         }
@@ -330,7 +330,9 @@ enum Catalog {
             }
         }
 
-        check("platform-key/secure-enclave/rejects-es384", skip: noSecureEnclave) {
+        // Never skips: `generate` refuses ES384 for the Secure Enclave before it checks that one
+        // is available (CATALOG.md, check 44).
+        check("platform-key/secure-enclave/rejects-es384") {
             try withKeyTag(tagPrefix + "secure-enclave-rejects-es384", delete: PlatformKeysSecureEnclave.delete) { tag in
                 try expectCode(VerifyAllowList.rejectionCode {
                     _ = try PlatformKeysSecureEnclave.create(tag: tag, algorithm: "ES384")

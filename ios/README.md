@@ -1,6 +1,6 @@
 # polyjose example app for iOS
 
-`polyjose-examples-ios` is a SwiftUI app (iOS 16 or later) that uses the [`polyjose`](https://github.com/bharathkontham/polyjose) Swift package, version 0.4.0, product `Polyjose`, its only dependency. Each file in [`PolyjoseExamples/Examples/`](PolyjoseExamples/Examples/) answers one "How do I…?" question, imports `Polyjose` directly, and can be copied into your app on its own. [`PolyjoseExamples/Harness/`](PolyjoseExamples/Harness/) runs every check of the [catalog](../CATALOG.md) through those files when the app starts, prints the lines to stdout and shows them on screen.
+`polyjose-examples-ios` is a SwiftUI app (iOS 16 or later) that uses the [`polyjose`](https://github.com/bharathkontham/polyjose) Swift package, version 0.4.0, product `Polyjose`, its only dependency. Each file in [`PolyjoseExamples/Examples/`](PolyjoseExamples/Examples/) answers one "How do I…?" question, imports `Polyjose` directly, and can be copied into your app on its own. [`PolyjoseExamples/Harness/`](PolyjoseExamples/Harness/) runs every check of the [catalog](../CATALOG.md) through those files when the app starts, prints the lines to stdout and shows them on the **Checks** tab. The other four tabs, **Sign**, **Encrypt**, **Keys** and **Log**, are the [playground](#playground): try any key store, algorithm and option by tapping, and see every step.
 
 Needs macOS with Xcode and an iOS Simulator runtime. `DEVELOPER_DIR` selects the Xcode, as for any Xcode command-line tool.
 
@@ -21,6 +21,8 @@ It exits 0 only when every check that ran passed and every check of the catalog 
 - **The Simulator.** `run.sh` uses a device named `polyjose-examples` on the newest installed iOS runtime, and creates it the first time. When the device is not running, `run.sh` boots it and shuts it down at the end; a device that was already running stays running. `POLYJOSE_SIMULATOR=<name or UDID>` picks another device, and `POLYJOSE_SIM_RUNTIME=<runtime identifier>` the runtime of a new one (`xcrun simctl list runtimes` lists them). To remove the device: `xcrun simctl delete polyjose-examples`.
 - **The timeout.** From the boot to the final line, `run.sh` waits at most `POLYJOSE_TIMEOUT` seconds (default 300). Then it prints `POLYJOSE-VERIFY: 0/44 PASS (timeout)`, stops the app and exits 1.
 - **Its files.** The Swift package checkout, DerivedData and the logs (`build.log`, `app.log`) go to `.build/` next to `run.sh`, which git ignores.
+
+`./run.sh --playground` runs the playground's [demo walk](#the-demo-walk) instead of the checks.
 
 ### In Xcode, on the Simulator
 
@@ -94,7 +96,55 @@ polyjose's `AppleKey` keeps the private key in an iOS key store: polyjose asks i
 A key with `access` flags (Face ID, Touch ID or the passcode) shows a system prompt during each sign or decrypt call and blocks the calling thread, so call these functions off the main thread. The checks use no `access` flags, so nothing prompts. Each check's key has a tag `dev.polyjose.examples.check.<run>.<name>` and is deleted at the end of the check, also when it fails. Every signature is verified again in software with `jwsVerifyCompact` or `jwtVerify` and the key's `publicJwk()`, and every JWE is encrypted in software with `jweEncryptCompact` to it.
 Checks: `platform-key/keychain/*`, `platform-key/secure-enclave/*` ([CATALOG.md](../CATALOG.md#ios-applekey)).
 
-Ran on: the iOS 27.2 Simulator, `POLYJOSE-VERIFY: 44/44 PASS`, the Secure Enclave checks included. [PLAYGROUND.md](../PLAYGROUND.md) describes the playground that will try each key store by hand.
+Ran on: the iOS 27.2 Simulator, `POLYJOSE-VERIFY: 44/44 PASS`, the Secure Enclave checks included. The [playground](#playground) tries each key store by hand.
+
+## Playground
+
+The **Sign**, **Encrypt**, **Keys** and **Log** tabs follow [PLAYGROUND.md](../PLAYGROUND.md): the support matrix, the explanation texts, the log format and the secrets rule. The code is in [`PolyjoseExamples/Playground/`](PolyjoseExamples/Playground/). Keychain and Secure Enclave keys go through the same two example files as the checks, and every polyjose call runs off the main thread.
+
+- **Sign:** a JWS or a JWT, the key store (Software, Keychain, Secure Enclave), the algorithm, the RSA size, the user authentication (`.userPresence`, `.biometryAny`, `.biometryCurrentSet`, `.devicePasscode`, optionally with one shared `LAContext`) and the key: a new one, or one from the Keys tab. **Sign**, **Verify** (in software, with the key's public JWK and an allow-list of the chosen algorithm), **Sign and verify**, and **Try a failure**: tamper, other algorithm allowed, wrong key, expired, deleted key.
+- **Encrypt:** the key-management `alg`, its curve or RSA size, the `enc` and the store of the key that decrypts. **Encrypt** (always in software, to the key's public JWK), **Decrypt**, **Round trip**, and **Try a failure**: tamper, other `alg` allowed, wrong key, deleted key.
+- **Keys:** this device (model, iOS version, Simulator, Secure Enclave, passcode), the playground's keys in each store, listed by their tag prefix `dev.polyjose.examples.playground.` (attributes only, so listing never asks you to authenticate), and the software keys, which live in the app's memory only. A key's page shows its public JWK (copy), its RFC 7638 thumbprint, **Open again** and **Delete**. **Create key** and **Delete all playground keys**.
+- **Log:** every step of every tap, newest first, grouped by tap. **Copy all** and **Share** give the whole log, oldest first; **Clear** empties it. Each line also goes to stdout (`print`) and to the system log (`os.Logger`, subsystem `dev.polyjose.examples`, category `playground`, public), so Console.app shows it from an iPhone that isn't attached to Xcode.
+
+A disabled row shows its reason; its info sheet offers **Run anyway**, which makes the call and shows the code the library gives. Every row has an info button with its explanation. The result card shows the token, its protected header, the outcome or the error code with its explanation, where the key lives as iOS reports it, and the time of each step. No screen, log line or explanation holds a private or symmetric key member, a content key, a shared secret or a library error message: JWKs pass a public-only gate, and errors are shown by their code only.
+
+On the Simulator, the Secure Enclave can't create a key with user authentication (each of the four flags gives `UserAuthenticationRequired`), so those options are disabled there, with the reason. Keychain keys with them work.
+
+### The demo walk
+
+```sh
+./run.sh --playground
+```
+
+`run.sh --playground` builds the app and launches it on the Simulator with `-playground-demo`. The app runs, through the same functions as the buttons: every cell of the support matrix for this device (each algorithm on each store, each `alg` and curve with `A256GCM`, each other `enc` with `ECDH-ES+A256KW` on P-256, the larger RSA sizes); **Run anyway** on every disabled cell, which must give the code of its row; the failure actions; creating and listing a key with each access flag on each store; opening a key again; and the public-only gate. Nothing prompts. It then deletes the keys it made. One `WALK OK` or `WALK FAIL` line per step, then:
+
+```
+POLYJOSE-PLAYGROUND: 180/180 OK
+```
+
+It exits 0 only when every step gave its expected outcome and `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:'` finds nothing in everything the app printed. The full log, `LOG` lines included, is `.build/logs/playground.log`.
+
+Ran on: the iOS 27.2 Simulator, `POLYJOSE-PLAYGROUND: 180/180 OK`.
+
+### On an iPhone, step by step
+
+The prompts, Face ID and the Secure Enclave hardware can only be tried on a device. Use an iPhone with Face ID and a passcode.
+
+1. Create `Config/Local.xcconfig` with your team, as in [On an iPhone](#on-an-iphone), and run the app from Xcode on the iPhone.
+2. **Checks:** the list ends with `POLYJOSE-VERIFY: 44/44 PASS`.
+3. **Sign**, Secure Enclave, ES256, **Sign and verify**: the result says "Key lives in: Secure Enclave".
+4. **Sign**, Keychain, ES384, **Sign and verify**: "Key lives in: Keychain", with "stored and protected by the OS, not hardware-bound; on iOS, code that holds the key reference can export the private key".
+5. **Sign**, Secure Enclave: the ES384 row is disabled with "The Secure Enclave holds P-256 keys only". Tap it, then **Run anyway**: `UnsupportedAlgorithm`.
+6. **Sign**, Secure Enclave, ES256, `.userPresence`, **Sign and verify**: approve the prompt; the token verifies. Pick that key under **Key**, **Sign** again and cancel the prompt: `UserAuthenticationRequired`.
+7. **Sign**, Secure Enclave, ES256, `.biometryCurrentSet`, **Sign and verify**: Face ID asks, the token verifies.
+8. **One shared LAContext:** **Sign**, Secure Enclave, ES256, `.userPresence`, turn on **One shared LAContext**, Key **New key**, **Sign**: one prompt. Pick that key under **Key** and tap **Sign** again: note whether it asks again (expected: no).
+9. **Encrypt**, Secure Enclave, `ECDH-ES+A256KW`, P-256, **Round trip**: the plaintext equals the input, "Key lives in: Secure Enclave". Then Keychain, `RSA-OAEP-256`, 2048, **Round trip**: the same, "Key lives in: Keychain".
+10. **On a spare device only** ("can't authenticate"): create a Secure Enclave ES256 key with `.biometryCurrentSet` (**Keys** > **Create key**), remove Face ID in Settings and keep the passcode, then sign with that key: record the code.
+11. **Log** > **Share** (for example AirDrop to a Mac), and on the Mac run `grep -E '"(d|p|q|dp|dq|qi|oth|k)"[[:space:]]*:' <the shared file>`: it must print nothing.
+12. **Keys** > **Delete all playground keys**: the Keychain and Secure Enclave lists are empty.
+
+What to record, as one row: the date, the iPhone model and iOS version (the **Keys** tab's "This device"), the `polyjose-examples` commit, the Checks final line, and for steps 3–10 what "Key lives in" said, each code, and whether and how often a prompt appeared; then the grep result of step 11.
 
 ## Test keys
 
@@ -105,7 +155,8 @@ Ran on: the iOS 27.2 Simulator, `POLYJOSE-VERIFY: 44/44 PASS`, the Secure Enclav
 | Path | What it is |
 |---|---|
 | `PolyjoseExamples.xcodeproj` | The Xcode project: one app target, `PolyjoseExamples`, and the Swift package requirement (`https://github.com/bharathkontham/polyjose`, exactly 0.4.0) |
-| `Config/App.xcconfig` | The target's build settings: bundle id `dev.polyjose.examples`, iOS 16, Swift 6; includes `Config/Local.xcconfig` when it exists |
+| `Config/App.xcconfig` | The target's build settings: bundle id `dev.polyjose.examples`, iOS 16, Swift 6, the Face ID usage text; includes `Config/Local.xcconfig` when it exists |
 | `PolyjoseExamples/Examples/` | One file per developer task (two for platform keys, one per key store), and the test keys |
-| `PolyjoseExamples/Harness/` | The checks in catalog order (`Catalog.swift`), their expectations (`Check.swift`), the runner (`Runner.swift`) and the screen (`ContentView.swift`) |
-| `run.sh` | Builds, runs on a Simulator and checks the result |
+| `PolyjoseExamples/Harness/` | The checks in catalog order (`Catalog.swift`), their expectations (`Check.swift`), the runner (`Runner.swift`) and the five tabs (`ContentView.swift`) |
+| `PolyjoseExamples/Playground/` | The playground: the support matrix (`Matrix.swift`), the explanations (`Explanations.swift`), the log and secrets gate (`Log.swift`), the store calls (`Operations.swift`), the actions (`Playground.swift`), the demo walk (`DemoWalk.swift`) and one view per tab |
+| `run.sh` | Builds, runs on a Simulator and checks the result; `--playground` runs the demo walk |
