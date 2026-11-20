@@ -70,20 +70,20 @@ if [ -n "${POLYJOSE_SRC:-}" ]; then
   # name (Xcode's local package override). POLYJOSE_LOCAL_XCFRAMEWORK=1 makes polyjose's
   # Package.swift use the copied XCFramework instead of the release download.
   checkout=$(cd "$here" && cd "$POLYJOSE_SRC" && pwd -P)
-  [ -f "$checkout/Package.swift" ] && [ -d "$checkout/platforms/swift/Sources/Polyjose" ] ||
-    { echo "$me: $POLYJOSE_SRC is not a polyjose checkout (no Package.swift, platforms/swift)" >&2; exit 2; }
-  xcframework=platforms/swift/build/PolyjoseFFI.xcframework
+  [ -f "$checkout/Package.swift" ] && [ -d "$checkout/bindings/swift/Sources/Polyjose" ] ||
+    { echo "$me: $POLYJOSE_SRC has no Package.swift and bindings/swift/Sources/Polyjose; $me needs a polyjose checkout with the bindings/ layout (0.5.0 or later, or main after 0030)" >&2; exit 2; }
+  xcframework=bindings/swift/build/PolyjoseFFI.xcframework
   [ -d "$checkout/$xcframework" ] || {
     echo "$me: $checkout/$xcframework is missing; build it in the checkout first:" >&2
-    echo "  (cd $checkout && platforms/swift/scripts/build-xcframework.sh)" >&2
+    echo "  (cd $checkout && bindings/swift/scripts/build-xcframework.sh)" >&2
     exit 2
   }
   export GIT_OPTIONAL_LOCKS=0 # git must not refresh the checkout's index (no write)
-  if [ -f "$checkout/platforms/swift/scripts/xcframework-stale.sh" ]; then
+  if [ -f "$checkout/bindings/swift/scripts/xcframework-stale.sh" ]; then
     # shellcheck source=/dev/null
-    stale=$(. "$checkout/platforms/swift/scripts/xcframework-stale.sh" &&
+    stale=$(. "$checkout/bindings/swift/scripts/xcframework-stale.sh" &&
       xcframework_stale "$checkout" "$checkout/$xcframework" || true)
-    [ -z "$stale" ] || echo "$me: warning: the checkout's XCFramework is stale ($stale); rebuild it with platforms/swift/scripts/build-xcframework.sh" >&2
+    [ -z "$stale" ] || echo "$me: warning: the checkout's XCFramework is stale ($stale); rebuild it with bindings/swift/scripts/build-xcframework.sh" >&2
   fi
   commit=$(git -C "$checkout" rev-parse --short HEAD 2>/dev/null || echo unknown)
   echo "==> copy the polyjose checkout ($commit) to .build/polyjose" >&2

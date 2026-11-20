@@ -7,7 +7,7 @@
 #
 # The checkout is never written to. Its files (tracked, plus untracked files that git does not
 # ignore, so uncommitted work is included) are copied to $POLYJOSE_BUILD_DIR/src, and polyjose's
-# own Gradle build publishes the AAR there, to src/platforms/android/build/repo, with cargo's
+# own Gradle build publishes the AAR there, to src/bindings/kotlin/build/repo, with cargo's
 # output in $POLYJOSE_BUILD_DIR/target. Then this app is built with -PpolyjoseSrc pointing at
 # the copy, so dev.polyjose comes only from that repo (settings.gradle.kts).
 #
@@ -24,8 +24,8 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd -P)
 [ -n "${POLYJOSE_SRC:-}" ] || { echo "build.sh: set POLYJOSE_SRC to a polyjose checkout" >&2; exit 2; }
 checkout=$(cd "$here" && cd "$POLYJOSE_SRC" && pwd -P)
-[ -f "$checkout/platforms/android/gradlew" ] \
-  || { echo "build.sh: $POLYJOSE_SRC is not a polyjose checkout (no platforms/android/gradlew)" >&2; exit 2; }
+[ -f "$checkout/bindings/kotlin/gradlew" ] \
+  || { echo "build.sh: $POLYJOSE_SRC has no bindings/kotlin/gradlew; build.sh needs a polyjose checkout with the bindings/ layout (0.5.0 or later, or main after 0030)" >&2; exit 2; }
 
 build_dir=${POLYJOSE_BUILD_DIR:-$here/.build}
 case "$build_dir" in /*) ;; *) build_dir=$PWD/$build_dir ;; esac
@@ -54,7 +54,7 @@ mkdir -p "$src"
 
 echo "==> build the polyjose AAR in the copy (publishAllPublicationsToBuildLocalRepository)"
 export CARGO_TARGET_DIR=$build_dir/target
-(cd "$src/platforms/android" && ./gradlew --quiet :polyjose:publishAllPublicationsToBuildLocalRepository)
+(cd "$src/bindings/kotlin" && ./gradlew --quiet :polyjose:publishAllPublicationsToBuildLocalRepository)
 
 echo "==> build this app against it"
 cd "$here"

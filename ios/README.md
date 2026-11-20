@@ -45,11 +45,11 @@ Checks 1–34 use only polyjose's own pure-Rust cryptography, so they behave the
 ### Against a local polyjose checkout
 
 ```sh
-(cd ../../polyjose && platforms/swift/scripts/build-xcframework.sh)   # once, and after each Rust change
+(cd ../../polyjose && bindings/swift/scripts/build-xcframework.sh)   # once, and after each Rust change
 POLYJOSE_SRC=../../polyjose ./run.sh
 ```
 
-The checkout's Swift package needs its locally built XCFramework, `platforms/swift/build/PolyjoseFFI.xcframework`, which polyjose's `platforms/swift/scripts/build-xcframework.sh` builds (it needs the Rust toolchains in polyjose's `CONTRIBUTING.md`). `run.sh` warns when that XCFramework is older than the checkout's Rust code.
+The checkout's Swift package needs its locally built XCFramework, `bindings/swift/build/PolyjoseFFI.xcframework`, which polyjose's `bindings/swift/scripts/build-xcframework.sh` builds (it needs the Rust toolchains in polyjose's `CONTRIBUTING.md`). `run.sh` warns when that XCFramework is older than the checkout's Rust code. The checkout needs the `bindings/` layout (polyjose 0.5.0 or later, or `main` after that change); for an older checkout, use this repo as it was at that release.
 
 `run.sh` then copies the checkout (tracked files, plus untracked files that git does not ignore) and its XCFramework to `.build/polyjose`, and builds `.build/PolyjoseLink.xcworkspace`: a workspace with the app project and that copy as a local package. A local package with the same name as a remote one replaces it, so the app builds against the checkout without any change to the project, and `POLYJOSE_LOCAL_XCFRAMEWORK=1` makes polyjose's `Package.swift` use the local XCFramework. The checkout itself is never written to. Run `./run.sh` without `POLYJOSE_SRC` to go back to the published package: it builds the project itself, which still names the published package.
 
